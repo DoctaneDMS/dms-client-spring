@@ -7,14 +7,17 @@ package com.softwareplumbers.dms.rest.client.spring;
 
 import com.softwareplumbers.dms.Document;
 import com.softwareplumbers.dms.DocumentService;
-import com.softwareplumbers.dms.Exceptions;
+import com.softwareplumbers.dms.Exceptions.*;
 import com.softwareplumbers.dms.InputStreamSupplier;
 import com.softwareplumbers.dms.Reference;
-import com.softwareplumbers.dms.RepositoryObject;
+import com.softwareplumbers.dms.common.impl.RepositoryObjectFactory;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.StringReader;
 import java.net.URI;
 import java.util.Collections;
+import javax.json.Json;
 import javax.json.JsonObject;
-import javax.ws.rs.core.MediaType;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -22,6 +25,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
 /**
  *
@@ -29,65 +33,162 @@ import org.springframework.web.client.RestTemplate;
  */
 public class DocumentServiceImpl implements DocumentService {
     
-    private String docsURL = null;
+    private String docsUrl;
+    private LoginHandler loginHandler;
     
-    public String getDocumentAPIURL() { return this.docsURL; }
-    public void setDocumentAPIURL(String docsURL) { this.docsURL = docsURL; }
+    public void setDocumentAPIURL(String docsUrl) { 
+        this.docsUrl = docsUrl;
+    }
     
-    private void applyCredentials(HttpHeaders headers) {
+    public void setLoginHandler(LoginHandler loginHandler) {
+        this.loginHandler = loginHandler;
+    }
+    
+    private final RepositoryObjectFactory factory = new RepositoryObjectFactory();
         
+    protected JsonObject sendMultipart(URI uri, HttpMethod method, javax.ws.rs.core.MediaType mt, InputStreamSupplier iss, JsonObject jo) throws IOException {
+        LinkedMultiValueMap<String, Object> multipartMap = new LinkedMultiValueMap<>();
+        HttpHeaders metadataHeader = new HttpHeaders();
+        metadataHeader.set("Content-Type", org.springframework.http.MediaType.APPLICATION_JSON_VALUE);
+        HttpHeaders binaryHeader = new HttpHeaders();
+        if (mt != null) metadataHeader.set("Content-Type", mt.toString());
+        HttpEntity<String> metadataEntity = new HttpEntity<String>(jo.toString(), metadataHeader);
+        HttpEntity<InputStream> binaryEntity = new HttpEntity<InputStream>(iss.get(), binaryHeader);
+        multipartMap.add("metadata", metadataEntity);
+        multipartMap.add("file", binaryEntity);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(org.springframework.http.MediaType.MULTIPART_FORM_DATA);
+        headers.setAccept(Collections.singletonList(org.springframework.http.MediaType.APPLICATION_JSON));
+
+        loginHandler.applyCredentials(headers);
+
+        HttpEntity<LinkedMultiValueMap<String, Object>> requestEntity = new HttpEntity<>(multipartMap, headers);
+        RestTemplate restTemplate = new RestTemplate();
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                uri, method, requestEntity,
+                String.class);
+
+        return Json.createReader(new StringReader(response.getBody())).readObject();
     }
     
-    private class RepositoryObjectFactory {
-    
+    protected JsonObject sendJson(URI uri, HttpMethod method, JsonObject jo) throws IOException {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Content-Type", org.springframework.http.MediaType.APPLICATION_JSON_VALUE);
+        headers.setAccept(Collections.singletonList(org.springframework.http.MediaType.APPLICATION_JSON));
+        loginHandler.applyCredentials(headers);
+        HttpEntity<String> requestEntity = new HttpEntity<String>(jo.toString(), headers);
+
+        RestTemplate restTemplate = new RestTemplate();
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                uri, method, requestEntity,
+                String.class);
+
+        return Json.createReader(new StringReader(response.getBody())).readObject();
     }
     
-    private RepositoryObject sendMultipart(HttpMethod method, URI uri, HttpEntity<?> file, JsonObject metadata) {
-		try {
+    protected JsonObject getJson(URI uri) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(Collections.singletonList(org.springframework.http.MediaType.APPLICATION_JSON));
+        loginHandler.applyCredentials(headers);
 
-			LinkedMultiValueMap<String, Object> multipartMap = new LinkedMultiValueMap<>();
-			HttpHeaders metadataHeader = new HttpHeaders();
-			metadataHeader.set("Content-Type", org.springframework.http.MediaType.APPLICATION_JSON_VALUE);
-			HttpEntity<String> metadataEntity = new HttpEntity<String>(metadata.toString(), metadataHeader);
-					
-			multipartMap.add("metadata", metadataEntity);
-			multipartMap.add("file", file);
+        RestTemplate restTemplate = new RestTemplate();
 
-			HttpHeaders headers = new HttpHeaders();
-			headers.setContentType(org.springframework.http.MediaType.MULTIPART_FORM_DATA);
-			headers.setAccept(Collections.singletonList(org.springframework.http.MediaType.APPLICATION_JSON));
-			
-			applyCredentials(headers);
+        ResponseEntity<String> response = restTemplate.exchange(
+                uri, HttpMethod.GET, null, String.class);
 
-			HttpEntity<LinkedMultiValueMap<String, Object>> requestEntity = new HttpEntity<>(multipartMap, headers);
-			RestTemplate restTemplate = new RestTemplate();
+        return Json.createReader(new StringReader(response.getBody())).readObject();        
+    }
+    
+    protected InputStream getData(URI uri) {
+        HttpHeaders headers = new HttpHeaders();
+        loginHandler.applyCredentials(headers);
 
-			ResponseEntity<String> response = restTemplate.exchange(
-					uri, method, requestEntity,
-					String.class);
+        RestTemplate restTemplate = new RestTemplate();
 
-			JSONObject result = new JSONObject(response.getBody());
-			return logReturn("sendMultipart", result);
-		} catch (JSONException e) {
-			throw logRethrow("sendMultipart",e);
-		} catch (HttpStatusCodeException e) {
-			throw logThrow("sendMultipart",handleError(e));
-		}	
-	}
+        ResponseEntity<InputStream> response = restTemplate.exchange(
+                uri, HttpMethod.GET, null, InputStream.class);
+
+        return response.getBody();        
+    }
+    
+    protected InputStream getData(Reference reference) throws InvalidReference {        
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl).path("{documentId}/file");
+            if (reference.version != null) builder = builder.queryParam("version", reference.version);
+            return getData(builder.buildAndExpand(reference.id).toUri());
+        } catch (HttpStatusCodeException e) {
+            switch (e.getStatusCode()) {
+                case NOT_FOUND: throw new InvalidReference(reference);
+                default:
+                    throw getDefaultError(e);
+            }
+        }        
+    }
+    
+    public BaseRuntimeException getDefaultError(HttpStatusCodeException e) {
+        String body = e.getResponseBodyAsString();
+        JsonObject message = null;
+        try {
+            message = Json.createReader(new StringReader(body)).readObject();
+        } catch (RuntimeException je) {
+            // suppress
+        }
+        if (message != null)
+            return new RemoteException(message);
+        else
+            return new ServerError(e.getStatusText());
+    }
+    
+    @Override
+    public Reference updateDocument(String id, javax.ws.rs.core.MediaType mediaType, InputStreamSupplier data, JsonObject metadata) throws InvalidDocumentId {
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
+            builder.path("{documentId}");
+            JsonObject result = sendMultipart(builder.buildAndExpand(id).toUri(), HttpMethod.PUT, mediaType, data, metadata);
+            return Reference.fromJson(result);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } catch (HttpStatusCodeException e) {
+            switch (e.getStatusCode()) {
+                case NOT_FOUND: throw new InvalidDocumentId(id);
+                default:
+                    throw getDefaultError(e);
+            }
+        }
+    }
 
     @Override
-    public Document getDocument(Reference rfrnc) throws Exceptions.InvalidReference {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
-    }
-
-    @Override
-    public Reference createDocument(MediaType mt, InputStreamSupplier iss, JsonObject jo) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
-    }
-
-    @Override
-    public Reference updateDocument(String string, MediaType mt, InputStreamSupplier iss, JsonObject jo) throws Exceptions.InvalidDocumentId {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
-    }
+    public Reference createDocument(javax.ws.rs.core.MediaType mediaType, InputStreamSupplier data, JsonObject metadata) {
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
+            JsonObject result = sendMultipart(builder.build().toUri(), HttpMethod.PUT, mediaType, data, metadata);
+            return Reference.fromJson(result);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } catch (HttpStatusCodeException e) {
+            switch (e.getStatusCode()) {
+                default:
+                    throw getDefaultError(e);
+            }
+        }
+    }    
     
+    @Override
+    public Document getDocument(Reference ref) throws InvalidReference {
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
+            builder.path("{documentId}");
+            if (ref.version != null) builder.queryParam("version", ref.version);
+            JsonObject result = getJson(builder.buildAndExpand(ref.id).toUri());
+            return (Document)factory.build(result, this::getData);
+        } catch (HttpStatusCodeException e) {
+            switch (e.getStatusCode()) {
+                default:
+                    throw getDefaultError(e);
+            }
+        }    
+    }
 }

@@ -67,5 +67,6 @@ targetCompatibility = 1.8
 
 dependencies {
     compile group: 'com.softwareplumbers.oss', name:'dms-interface-core', version: 'master-SNAPSHOT'
+    compile group: 'com.softwareplumbers.oss', name:'key-manager', version: '0.0.8'
     compile group: 'org.springframework', name: 'spring-web', version: '4.3.8.RELEASE'
 }
