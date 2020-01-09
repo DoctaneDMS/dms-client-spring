@@ -84,8 +84,7 @@ public class SignedRequestLoginHandler implements LoginHandler {
             throw new RuntimeException(e);
         }
     }
-    
-    
+        
     private Optional<HttpCookie> getCookieFromServer() {
         LOG.log(Level.FINER, "entering getCookieFromServer");
         RestTemplate restTemplate = new RestTemplate();

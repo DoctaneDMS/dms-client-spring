@@ -44,6 +44,15 @@ public class DocumentServiceImpl implements DocumentService {
         this.loginHandler = loginHandler;
     }
     
+    public DocumentServiceImpl(String docsUrl, LoginHandler loginHandler) {
+        this.docsUrl = docsUrl;
+        this.loginHandler = loginHandler;
+    }
+    
+    public DocumentServiceImpl() {
+        this(null, null);
+    }
+    
     private final RepositoryObjectFactory factory = new RepositoryObjectFactory();
         
     protected JsonObject sendMultipart(URI uri, HttpMethod method, javax.ws.rs.core.MediaType mt, InputStreamSupplier iss, JsonObject jo) throws IOException {
