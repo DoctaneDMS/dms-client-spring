@@ -214,12 +214,14 @@ public class DocumentServiceImpl implements DocumentService {
     public Document getDocument(Reference ref) throws InvalidReference {
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
-            builder.path("{documentId}");
+            builder.path("{documentId}/metadata");
             if (ref.version != null) builder.queryParam("version", ref.version);
             JsonObject result = getJson(builder.buildAndExpand(ref.id).toUri());
             return (Document)factory.build(result, this::getData);
         } catch (HttpStatusCodeException e) {
             switch (e.getStatusCode()) {
+                case NOT_FOUND:
+                    throw new InvalidReference(ref);
                 default:
                     throw getDefaultError(e);
             }
