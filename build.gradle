@@ -27,6 +27,15 @@ javadoc {
     classpath = configurations.compile
 }
 
+test {
+    systemProperty "qa.keystore.password", propValue("keystorePassword", "changeme")
+    systemProperty "java.util.logging.config.file", "src/test/resources/logging.properties"
+ 
+    testLogging {
+        events "passed", "skipped", "failed"
+    }
+}
+
 task javadocJar(type: Jar) {
     from javadoc
     classifier = 'javadoc'
@@ -69,4 +78,8 @@ dependencies {
     compile group: 'com.softwareplumbers.oss', name:'dms-interface-core', version: 'master-SNAPSHOT'
     compile group: 'com.softwareplumbers.oss', name:'key-manager', version: '0.0.8'
     compile group: 'org.springframework', name: 'spring-web', version: '4.3.8.RELEASE'
+    testCompile group: 'com.softwareplumbers.oss', name: 'dms-interface-core', version: 'master-SNAPSHOT', classifier: 'tests'
+    testImplementation 'org.springframework:spring-test:4.3.8.RELEASE'
+    runtime group: 'org.glassfish', name: 'javax.json', version: '1.1.2'
+    runtime group: 'org.slf4j', name: 'slf4j-jdk14', version: '1.7.30'
 }

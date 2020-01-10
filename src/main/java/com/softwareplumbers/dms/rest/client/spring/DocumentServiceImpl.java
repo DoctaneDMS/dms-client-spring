@@ -16,8 +16,12 @@ import java.io.InputStream;
 import java.io.StringReader;
 import java.net.URI;
 import java.util.Collections;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.json.Json;
 import javax.json.JsonObject;
+import javax.json.stream.JsonParsingException;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -33,6 +37,8 @@ import org.springframework.web.util.UriComponentsBuilder;
  */
 public class DocumentServiceImpl implements DocumentService {
     
+    private static final Logger LOG = Logger.getLogger(DocumentServiceImpl.class.getName());
+ 
     private String docsUrl;
     private LoginHandler loginHandler;
     
@@ -54,15 +60,22 @@ public class DocumentServiceImpl implements DocumentService {
     }
     
     private final RepositoryObjectFactory factory = new RepositoryObjectFactory();
+    
+    protected static HttpEntity<InputStreamResource> toEntity(InputStream is, String mimeType) {
+	    InputStreamResource resource = new InputStreamResource(is);
+		HttpHeaders fileHeader = new HttpHeaders();
+		fileHeader.set("Content-Type", mimeType);
+		return new HttpEntity<>(resource, fileHeader);
+	}
+	
         
-    protected JsonObject sendMultipart(URI uri, HttpMethod method, javax.ws.rs.core.MediaType mt, InputStreamSupplier iss, JsonObject jo) throws IOException {
+    protected JsonObject sendMultipart(URI uri, HttpMethod method, String mt, InputStreamSupplier iss, JsonObject jo) throws IOException {
+        LOG.log(Level.FINEST, ()->String.format("Entering sendMultipart with %s, %s, %s, ...", uri, method, mt));
         LinkedMultiValueMap<String, Object> multipartMap = new LinkedMultiValueMap<>();
         HttpHeaders metadataHeader = new HttpHeaders();
         metadataHeader.set("Content-Type", org.springframework.http.MediaType.APPLICATION_JSON_VALUE);
-        HttpHeaders binaryHeader = new HttpHeaders();
-        if (mt != null) metadataHeader.set("Content-Type", mt.toString());
-        HttpEntity<String> metadataEntity = new HttpEntity<String>(jo.toString(), metadataHeader);
-        HttpEntity<InputStream> binaryEntity = new HttpEntity<InputStream>(iss.get(), binaryHeader);
+        HttpEntity<String> metadataEntity = new HttpEntity<>(jo.toString(), metadataHeader);
+        HttpEntity<InputStreamResource> binaryEntity = toEntity(iss.get(), mt);
         multipartMap.add("metadata", metadataEntity);
         multipartMap.add("file", binaryEntity);
 
@@ -83,11 +96,12 @@ public class DocumentServiceImpl implements DocumentService {
     }
     
     protected JsonObject sendJson(URI uri, HttpMethod method, JsonObject jo) throws IOException {
+        LOG.finest(()->String.format("Entering sendJson with %s, %s, %s", uri, method, jo));
         HttpHeaders headers = new HttpHeaders();
         headers.set("Content-Type", org.springframework.http.MediaType.APPLICATION_JSON_VALUE);
         headers.setAccept(Collections.singletonList(org.springframework.http.MediaType.APPLICATION_JSON));
         loginHandler.applyCredentials(headers);
-        HttpEntity<String> requestEntity = new HttpEntity<String>(jo.toString(), headers);
+        HttpEntity<String> requestEntity = new HttpEntity<>(jo.toString(), headers);
 
         RestTemplate restTemplate = new RestTemplate();
 
@@ -99,6 +113,7 @@ public class DocumentServiceImpl implements DocumentService {
     }
     
     protected JsonObject getJson(URI uri) {
+        LOG.finest(()->String.format("Entering getJson with %s", uri));
         HttpHeaders headers = new HttpHeaders();
         headers.setAccept(Collections.singletonList(org.springframework.http.MediaType.APPLICATION_JSON));
         loginHandler.applyCredentials(headers);
@@ -106,12 +121,20 @@ public class DocumentServiceImpl implements DocumentService {
         RestTemplate restTemplate = new RestTemplate();
 
         ResponseEntity<String> response = restTemplate.exchange(
-                uri, HttpMethod.GET, null, String.class);
+                uri, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+        
+        String body = response.getBody();
 
-        return Json.createReader(new StringReader(response.getBody())).readObject();        
+        try {
+            return Json.createReader(new StringReader(body)).readObject();
+        } catch (JsonParsingException e) {
+            LOG.log(Level.FINE, ()->"failed to parse Json: " + body);
+            throw e;
+        }
     }
     
     protected InputStream getData(URI uri) {
+        LOG.finest(()->String.format("Entering getData with %s", uri));
         HttpHeaders headers = new HttpHeaders();
         loginHandler.applyCredentials(headers);
 
@@ -147,12 +170,14 @@ public class DocumentServiceImpl implements DocumentService {
         }
         if (message != null)
             return new RemoteException(message);
-        else
+        else {
+            LOG.log(Level.WARNING, "Unexplained error", e);
             return new ServerError(e.getStatusText());
+        }
     }
     
     @Override
-    public Reference updateDocument(String id, javax.ws.rs.core.MediaType mediaType, InputStreamSupplier data, JsonObject metadata) throws InvalidDocumentId {
+    public Reference updateDocument(String id, String mediaType, InputStreamSupplier data, JsonObject metadata) throws InvalidDocumentId {
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
             builder.path("{documentId}");
@@ -170,10 +195,10 @@ public class DocumentServiceImpl implements DocumentService {
     }
 
     @Override
-    public Reference createDocument(javax.ws.rs.core.MediaType mediaType, InputStreamSupplier data, JsonObject metadata) {
+    public Reference createDocument(String mediaType, InputStreamSupplier data, JsonObject metadata) {
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
-            JsonObject result = sendMultipart(builder.build().toUri(), HttpMethod.PUT, mediaType, data, metadata);
+            JsonObject result = sendMultipart(builder.build().toUri(), HttpMethod.POST, mediaType, data, metadata);
             return Reference.fromJson(result);
         } catch (IOException e) {
             throw new RuntimeException(e);
