@@ -11,14 +11,16 @@ import java.security.KeyStoreException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
 
 /**
  *
  * @author jonathan
  */
+@Profile("qa")
 @Configuration
-public class Config {
+public class QAConfig {
     
     @Autowired
 	Environment env;
@@ -27,7 +29,7 @@ public class Config {
     public KeyManager keyManager() throws KeyStoreException { 
         KeyManager<SecretKeys, KeyPairs> keyManager = new KeyManager<>();
         keyManager.setLocation("/var/tmp/doctane-proxy.keystore");
-        keyManager.setPassword(env.getProperty("qa.keystore.password"));
+        keyManager.setPassword(env.getProperty("doctane.keystore.password"));
         keyManager.setRequiredSecretKeys(SecretKeys.class);
         keyManager.setRequiredKeyPairs(KeyPairs.class);
         return keyManager;
@@ -36,7 +38,7 @@ public class Config {
     @Bean LoginHandler loginHandler() throws KeyStoreException {
         SignedRequestLoginHandler handler = new SignedRequestLoginHandler();
         handler.setKeyManager(keyManager());
-        handler.setAuthURI("https://api.doctane.com/rest-server-filenet/auth/test/service?request={request}&signature={signature}");
+        handler.setAuthURI("http://doctane-api-tc9-qa.services.softwareplumbers.net:8080/rest-server-filenet/auth/test/service?request={request}&signature={signature}");
         handler.setRepository("test");
         return handler;
     }
@@ -44,7 +46,7 @@ public class Config {
     @Bean
     public DocumentService testService() throws KeyStoreException {
         DocumentServiceImpl service = new DocumentServiceImpl();
-        service.setDocumentAPIURL("https://api.doctane.com/rest-server-filenet/docs/test/");
+        service.setDocumentAPIURL("http://doctane-api-tc9-qa.services.softwareplumbers.net:8080/rest-server-filenet/docs/test/");
         service.setLoginHandler(loginHandler());
         return service;
     }

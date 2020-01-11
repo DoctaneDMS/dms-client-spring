@@ -96,7 +96,7 @@ public class SignedRequestLoginHandler implements LoginHandler {
         URI authRequest = authURI.expand(authRequestBase64, sigBase64); 
         ResponseEntity<String> response = restTemplate.exchange(authRequest, HttpMethod.GET, null, String.class);
         Optional<HttpCookie> result = getCookieFromResponse(cookieName, response);
-        LOG.log(Level.FINER, "getCookieFromServer returns ", result);
+        LOG.log(Level.FINER, "getCookieFromServer returns {0}", result);
         return result;
     }
     
@@ -126,19 +126,19 @@ public class SignedRequestLoginHandler implements LoginHandler {
     
     @Required
     public void setKeyManager(KeyManager<SecretKeys, KeyPairs> keyManager) { 
-        LOG.log(Level.FINER, "setting keyManager to ", keyManager);
+        LOG.log(Level.FINER, "setting keyManager to {0}", keyManager);
         this.keyManager = keyManager;
     }
 
     @Required
     public void setAuthURI(String authURI) { 
-        LOG.log(Level.FINER, "setting authURI to ", authURI);
+        LOG.log(Level.FINER, "setting authURI to {0}", authURI);
         this.authURI = new UriTemplate(authURI);
     }
     
     @Required
     public void setRepository(String repository) { 
-        LOG.log(Level.FINER, "setting repository to ", repository);
+        LOG.log(Level.FINER, "setting repository to {0}", repository);
         this.cookieName = "DoctaneUserToken/"+repository;
     }
     

@@ -13,6 +13,9 @@ import com.softwareplumbers.dms.Reference;
 import com.softwareplumbers.dms.common.impl.RepositoryObjectFactory;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.PipedInputStream;
+import java.io.PipedOutputStream;
 import java.io.StringReader;
 import java.net.URI;
 import java.util.Collections;
@@ -25,7 +28,9 @@ import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
@@ -133,31 +138,45 @@ public class DocumentServiceImpl implements DocumentService {
         }
     }
     
-    protected InputStream getData(URI uri) {
-        LOG.finest(()->String.format("Entering getData with %s", uri));
-        HttpHeaders headers = new HttpHeaders();
-        loginHandler.applyCredentials(headers);
-
+    protected static boolean writeBytes(ClientHttpResponse response, OutputStream out) throws IOException {
+        
+        if (response.getStatusCode() != HttpStatus.OK) return false;
+        try (InputStream is = response.getBody()) {
+            byte[] buf = new byte[1024];
+            int len;
+            while ((len = is.read(buf)) >= 0) { out.write(buf, 0, len); }
+        } 
+        out.close();
+        return true;
+    } 
+    
+    protected boolean writeData(URI uri, OutputStream out) throws IOException {
+        LOG.finest(()->String.format("Entering writeData with %s", uri));
         RestTemplate restTemplate = new RestTemplate();
-
-        ResponseEntity<InputStream> response = restTemplate.exchange(
-                uri, HttpMethod.GET, null, InputStream.class);
-
-        return response.getBody();        
+        return restTemplate.execute(
+                uri, HttpMethod.GET, request -> loginHandler.applyCredentials(request.getHeaders()), response -> writeBytes(response, out));
     }
     
-    protected InputStream getData(Reference reference) throws InvalidReference {        
-        try {
-            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl).path("{documentId}/file");
-            if (reference.version != null) builder = builder.queryParam("version", reference.version);
-            return getData(builder.buildAndExpand(reference.id).toUri());
-        } catch (HttpStatusCodeException e) {
-            switch (e.getStatusCode()) {
-                case NOT_FOUND: throw new InvalidReference(reference);
-                default:
-                    throw getDefaultError(e);
-            }
-        }        
+    protected void writeData(Reference reference, OutputStream out) throws InvalidReference, IOException {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl).path("{documentId}/file");
+        if (reference.version != null) builder = builder.queryParam("version", reference.version);
+        if (!writeData(builder.buildAndExpand(reference.id).toUri(), out)) throw new InvalidReference(reference);
+    }
+    
+    protected InputStream getData(Reference reference) throws IOException {        
+        PipedOutputStream out = new PipedOutputStream();
+        PipedInputStream in = new PipedInputStream(out);
+        
+        new Thread(()-> { 
+            try {
+                writeData(reference, out); 
+            } catch (InvalidReference | IOException e) {
+                // Hopefully this will force an IOException in the reading thread
+                try { in.close(); } catch (IOException e2) { }
+            } 
+        }).start();
+
+        return in;
     }
     
     public BaseRuntimeException getDefaultError(HttpStatusCodeException e) {

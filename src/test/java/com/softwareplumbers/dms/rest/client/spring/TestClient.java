@@ -22,7 +22,7 @@ import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
  * @author jonathan
  */
 @RunWith(SpringJUnit4ClassRunner.class)
-@ContextConfiguration(classes = { Config.class })
+@ContextConfiguration(classes = { TestConfig.class })
 public class TestClient extends DocumentServiceTest {
 
     @Autowired
