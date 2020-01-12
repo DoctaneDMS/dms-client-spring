@@ -18,9 +18,9 @@ import org.springframework.core.env.Environment;
  *
  * @author jonathan
  */
-@Profile("test")
+@Profile("tmp")
 @Configuration
-public class TestConfig {
+public class TmpConfig {
     
     @Autowired
 	Environment env;
@@ -38,15 +38,15 @@ public class TestConfig {
     @Bean LoginHandler loginHandler() throws KeyStoreException {
         SignedRequestLoginHandler handler = new SignedRequestLoginHandler();
         handler.setKeyManager(keyManager());
-        handler.setAuthURI("http://localhost:8080/rest-server-filenet/auth/test/service?request={request}&signature={signature}");
-        handler.setRepository("test");
+        handler.setAuthURI("http://localhost:8080/auth/tmp/service?request={request}&signature={signature}");
+        handler.setRepository("tmp");
         return handler;
     }
     
     @Bean
     public DocumentService testService() throws KeyStoreException {
         DocumentServiceImpl service = new DocumentServiceImpl();
-        service.setDocumentAPIURL("http://localhost:8080/rest-server-filenet/docs/test/");
+        service.setDocumentAPIURL("http://localhost:8080/docs/tmp/");
         service.setLoginHandler(loginHandler());
         return service;
     }
