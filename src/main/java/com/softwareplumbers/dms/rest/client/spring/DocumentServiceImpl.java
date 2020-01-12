@@ -190,7 +190,7 @@ public class DocumentServiceImpl implements DocumentService {
         if (message != null)
             return new RemoteException(message);
         else {
-            LOG.log(Level.WARNING, "Unexplained error", e);
+            LOG.log(Level.WARNING, ()->"Unexplained error " + e.getStatusText() + " : " + e.getResponseBodyAsString());
             return new ServerError(e.getStatusText());
         }
     }
