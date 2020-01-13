@@ -80,7 +80,7 @@ public class DocumentServiceImpl implements DocumentService {
         HttpHeaders metadataHeader = new HttpHeaders();
         metadataHeader.set("Content-Type", org.springframework.http.MediaType.APPLICATION_JSON_VALUE);
         HttpEntity<String> metadataEntity = new HttpEntity<>(jo.toString(), metadataHeader);
-        HttpEntity<InputStreamResource> binaryEntity = toEntity(iss.get(), mt);
+        HttpEntity<InputStreamResource> binaryEntity = toEntity(iss.get(), mt == null || mt.trim().isEmpty() ? "application/octet-stream" : mt);
         multipartMap.add("metadata", metadataEntity);
         multipartMap.add("file", binaryEntity);
 
@@ -190,7 +190,7 @@ public class DocumentServiceImpl implements DocumentService {
         if (message != null)
             return new RemoteException(message);
         else {
-            LOG.log(Level.WARNING, "Unexplained error", e);
+            LOG.log(Level.WARNING, ()->"Unexplained error " + e.getRawStatusCode() + " : " + e.getResponseBodyAsString());
             return new ServerError(e.getStatusText());
         }
     }

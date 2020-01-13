@@ -12,11 +12,14 @@ import com.softwareplumbers.dms.common.test.TestUtils;
 import java.util.UUID;
 import javax.json.Json;
 import javax.json.JsonObject;
+import javax.json.JsonValue;
+import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
-
+import static com.softwareplumbers.dms.common.test.TestUtils.*;
+import static org.junit.Assert.assertNotNull;
 /**
  *
  * @author jonathan
@@ -41,7 +44,13 @@ public class TestClient extends DocumentServiceTest {
     @Override
     public JsonObject randomDocumentMetadata() {
         return Json.createObjectBuilder()
-            .add("TradeDescription", TestUtils.randomText())
+            .add("TradeDescription", randomText())
             .build();
+    }
+    
+    @Test
+    public void testSendWithEmptyMimeType() {
+        Reference ref = service.createDocument("", ()->toStream(TestUtils.randomText()), JsonValue.EMPTY_JSON_OBJECT);
+        assertNotNull(ref);
     }
 }
