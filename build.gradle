@@ -82,5 +82,5 @@ dependencies {
     testCompile group: 'com.softwareplumbers.oss', name: 'dms-interface-core', version: 'master-SNAPSHOT', classifier: 'tests'
     testImplementation 'org.springframework:spring-test:4.3.8.RELEASE'
     runtime group: 'org.glassfish', name: 'javax.json', version: '1.1.2'
-    runtime group: 'org.slf4j', name: 'slf4j-jdk14', version: '1.7.30'
+    testImplementation group: 'org.slf4j', name: 'slf4j-jdk14', version: '1.7.30'
 }
