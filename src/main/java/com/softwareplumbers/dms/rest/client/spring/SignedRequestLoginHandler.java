@@ -22,9 +22,9 @@ import org.springframework.web.util.UriTemplate;
 import com.softwareplumbers.keymanager.KeyManager;
 import javax.json.Json;
 import javax.json.JsonObjectBuilder;
+import org.slf4j.ext.XLogger;
+import org.slf4j.ext.XLoggerFactory;
 import org.springframework.beans.factory.annotation.Required;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /** Handle login to the doctane proxy.
  * 
@@ -35,7 +35,7 @@ public class SignedRequestLoginHandler implements LoginHandler {
 
     //------ private static variables -------//
     
-    private static final Logger LOG = Logger.getLogger(SignedRequestLoginHandler.class.getName());
+    private static final XLogger LOG = XLoggerFactory.getXLogger(SignedRequestLoginHandler.class);
 
     private static String BASE_COOKIE_NAME="DoctaneUserToken";
 
@@ -66,7 +66,7 @@ public class SignedRequestLoginHandler implements LoginHandler {
     //------ private methods ------///
     
     private byte[] signAuthRequest(byte[] request, KeyPairs serviceAccount) {
-        LOG.log(Level.FINER, ()->"entering signAuthRequest with " + request + "," + serviceAccount);
+        LOG.entry(request, serviceAccount);
         KeyPair pair = keyManager.getKeyPair(serviceAccount);
         Signature sig;
         try {
@@ -74,19 +74,19 @@ public class SignedRequestLoginHandler implements LoginHandler {
             sig.initSign(pair.getPrivate());
             sig.update(request);
             byte[] result = sig.sign();
-            LOG.log(Level.FINER, "signAuthRequest returns <redacted>");
+            LOG.exit("<redacted>");
             return result;
         } catch (NoSuchAlgorithmException | NoSuchProviderException | InvalidKeyException e) {
-            LOG.log(Level.FINER, "signAuthRequest rethrowing ", e);
-            throw new IllegalArgumentException("cannot find an appropriate key pair for " + serviceAccount);
+            LOG.catching(e);
+            throw LOG.throwing(new IllegalArgumentException("cannot find an appropriate key pair for " + serviceAccount));
         } catch (SignatureException e) {
-            LOG.log(Level.FINER, "signAuthRequest rethrowing ", e);
-            throw new RuntimeException(e);
+            LOG.catching(e);
+            throw LOG.throwing(new RuntimeException(e));
         }
     }
         
     private Optional<HttpCookie> getCookieFromServer() {
-        LOG.log(Level.FINER, "entering getCookieFromServer");
+        LOG.entry();
         RestTemplate restTemplate = new RestTemplate();
         byte[] authRequestBytes = formatAuthRequest(KeyPairs.DEFAULT_SERVICE_ACCOUNT);
         byte[] signature = signAuthRequest(authRequestBytes, KeyPairs.DEFAULT_SERVICE_ACCOUNT);
@@ -96,8 +96,7 @@ public class SignedRequestLoginHandler implements LoginHandler {
         URI authRequest = authURI.expand(authRequestBase64, sigBase64); 
         ResponseEntity<String> response = restTemplate.exchange(authRequest, HttpMethod.GET, null, String.class);
         Optional<HttpCookie> result = getCookieFromResponse(cookieName, response);
-        LOG.log(Level.FINER, "getCookieFromServer returns {0}", result);
-        return result;
+        return LOG.exit(result);
     }
     
     //------- public methods ------//
@@ -109,37 +108,40 @@ public class SignedRequestLoginHandler implements LoginHandler {
      * @param repository The repository which we are accessing
      */
     public SignedRequestLoginHandler(KeyManager<SecretKeys,KeyPairs> keyManager, UriTemplate authURI, String repository) {
-        LOG.log(Level.FINER, ()->"entering constructor with <KeyManager>, " + authURI + "," + repository);
+        LOG.entry(keyManager, authURI, repository);
         this.keyManager = keyManager;
         this.authURI = authURI;
         this.cookieName = "DoctaneUserToken/"+repository;
-        LOG.log(Level.FINER, "exiting constructor");
+        LOG.exit();
     }
     
     public SignedRequestLoginHandler() {
-        LOG.log(Level.FINER, "entering no-arg constructor");
+        LOG.entry();
         this.keyManager = null;
         this.authURI = null;
         this.cookieName = null;
-        LOG.log(Level.FINER, "exiting constructor");
+        LOG.exit();
     }
     
     @Required
     public void setKeyManager(KeyManager<SecretKeys, KeyPairs> keyManager) { 
-        LOG.log(Level.FINER, "setting keyManager to {0}", keyManager);
+        LOG.entry(keyManager);
         this.keyManager = keyManager;
+        LOG.exit();
     }
 
     @Required
     public void setAuthURI(String authURI) { 
-        LOG.log(Level.FINER, "setting authURI to {0}", authURI);
+        LOG.entry(authURI);
         this.authURI = new UriTemplate(authURI);
+        LOG.exit();
     }
     
     @Required
     public void setRepository(String repository) { 
-        LOG.log(Level.FINER, "setting repository to {0}", repository);
+        LOG.entry(repository);
         this.cookieName = "DoctaneUserToken/"+repository;
+        LOG.exit();
     }
     
     /** Apply credentials to a request.
@@ -150,14 +152,14 @@ public class SignedRequestLoginHandler implements LoginHandler {
      */
     @Override
     public void applyCredentials(HttpHeaders mainRequest) {
-        LOG.log(Level.FINER, "entering applyCredentials");
+        LOG.entry();
         if (authCookie == null || authCookie.hasExpired()) {
             Optional<HttpCookie> cookie = getCookieFromServer();
             if (cookie.isPresent()) authCookie = cookie.get();
         }
         if (authCookie != null)
             mainRequest.add("Cookie", authCookie.toString());
-        LOG.log(Level.FINER, "exiting applyCredentials");
+        LOG.exit();
     }
     
     /** Get credentials 
@@ -166,11 +168,11 @@ public class SignedRequestLoginHandler implements LoginHandler {
      */
     @Override
     public String getCredentials() {
-        LOG.log(Level.FINER, "entering getCredentials");
+        LOG.entry();
         if (authCookie == null || authCookie.hasExpired()) {
             Optional<HttpCookie> cookie = getCookieFromServer();
             if (cookie.isPresent()) authCookie = cookie.get();
         }
-        return authCookie.toString();
+        return LOG.exit(authCookie.toString());
     }
 }
