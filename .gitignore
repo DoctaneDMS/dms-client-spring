@@ -7,4 +7,4 @@
 .DS_Store
 /bin/
 *.class
-/gradle.properties
+gradle.properties

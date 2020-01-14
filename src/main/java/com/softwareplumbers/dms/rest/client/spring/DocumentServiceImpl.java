@@ -180,6 +180,8 @@ public class DocumentServiceImpl implements DocumentService {
     }
     
     public BaseRuntimeException getDefaultError(HttpStatusCodeException e) {
+        LOG.finest(()->String.format("Entering getDefaultError with %s", e));
+
         String body = e.getResponseBodyAsString();
         JsonObject message = null;
         try {
@@ -215,11 +217,16 @@ public class DocumentServiceImpl implements DocumentService {
 
     @Override
     public Reference createDocument(String mediaType, InputStreamSupplier data, JsonObject metadata) {
+        LOG.finest(()->String.format("Entering createDocument with %s, ..., %s", mediaType, metadata));
+
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
             JsonObject result = sendMultipart(builder.build().toUri(), HttpMethod.POST, mediaType, data, metadata);
-            return Reference.fromJson(result);
+            Reference ref = Reference.fromJson(result);
+            LOG.finest(()->String.format("createDocument returns %s", ref));
+            return ref;
         } catch (IOException e) {
+            LOG.finer(() -> "rethrowing" + e);
             throw new RuntimeException(e);
         } catch (HttpStatusCodeException e) {
             switch (e.getStatusCode()) {
