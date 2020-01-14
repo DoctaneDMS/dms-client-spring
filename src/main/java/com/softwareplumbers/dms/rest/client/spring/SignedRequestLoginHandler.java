@@ -28,6 +28,10 @@ import org.springframework.beans.factory.annotation.Required;
 
 /** Handle login to the doctane proxy.
  * 
+ * This implementation of LoginHandler uses a token signed by a private key to
+ * authenticate itself to the Doctane server. The private key is store in a JCEKS
+ * format keystore (which is managed via the KeyManager component).
+ * 
  * @author SWPNET\jonessex
  *
  */

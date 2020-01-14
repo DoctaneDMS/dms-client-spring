@@ -7,9 +7,9 @@ package com.softwareplumbers.dms.rest.client.spring;
 
 import org.springframework.http.HttpHeaders;
 
-/**
+/** Generic interface class for implementing different authentication mechanisms.
  *
- * @author jonathan.local
+ * @author Jonathan Essex
  */
 public interface LoginHandler {
 
