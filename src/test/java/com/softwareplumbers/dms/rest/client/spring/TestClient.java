@@ -12,7 +12,6 @@ import com.softwareplumbers.dms.common.test.TestUtils;
 import java.util.UUID;
 import javax.json.Json;
 import javax.json.JsonObject;
-import javax.json.JsonValue;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,7 +24,7 @@ import static org.junit.Assert.assertNotNull;
  * @author jonathan
  */
 @RunWith(SpringJUnit4ClassRunner.class)
-@ContextConfiguration(classes = { TestConfig.class, QAConfig.class, TmpConfig.class })
+@ContextConfiguration(classes = { TestConfig.class, QAConfig.class, TmpConfig.class, DemoConfig.class })
 public class TestClient extends DocumentServiceTest {
 
     @Autowired
@@ -50,7 +49,7 @@ public class TestClient extends DocumentServiceTest {
     
     @Test
     public void testSendWithEmptyMimeType() {
-        Reference ref = service.createDocument("", ()->toStream(TestUtils.randomText()), JsonValue.EMPTY_JSON_OBJECT);
+        Reference ref = service.createDocument("", ()->toStream(TestUtils.randomText()), Json.createObjectBuilder().build());
         assertNotNull(ref);
     }
 }
