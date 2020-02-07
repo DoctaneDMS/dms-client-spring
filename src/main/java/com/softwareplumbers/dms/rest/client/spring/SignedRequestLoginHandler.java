@@ -20,6 +20,9 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriTemplate;
 
 import com.softwareplumbers.keymanager.KeyManager;
+import java.security.Key;
+import java.security.PrivateKey;
+import java.security.cert.X509Certificate;
 import javax.json.Json;
 import javax.json.JsonObjectBuilder;
 import org.slf4j.ext.XLogger;
@@ -52,10 +55,11 @@ public class SignedRequestLoginHandler implements LoginHandler {
 
     //------ private static methods -------//
     
-    private static byte[] formatAuthRequest(KeyPairs serviceAccount) {
+    private static byte[] formatAuthRequest(String serviceAccount) {
+        LOG.entry(serviceAccount);
         JsonObjectBuilder authRequest = Json.createObjectBuilder();
         authRequest.add("instant", System.currentTimeMillis());
-        authRequest.add("account", serviceAccount.name());
+        authRequest.add("account", serviceAccount);
         return authRequest.build().toString().getBytes();
     }
     
@@ -71,11 +75,11 @@ public class SignedRequestLoginHandler implements LoginHandler {
     
     private byte[] signAuthRequest(byte[] request, KeyPairs serviceAccount) {
         LOG.entry(request, serviceAccount);
-        KeyPair pair = keyManager.getKeyPair(serviceAccount);
+        PrivateKey key = keyManager.getKeyPair(serviceAccount).getPrivate();
         Signature sig;
         try {
             sig = Signature.getInstance("SHA1withDSA", "SUN");
-            sig.initSign(pair.getPrivate());
+            sig.initSign(key);
             sig.update(request);
             byte[] result = sig.sign();
             LOG.exit("<redacted>");
@@ -88,11 +92,17 @@ public class SignedRequestLoginHandler implements LoginHandler {
             throw LOG.throwing(new RuntimeException(e));
         }
     }
+    
+    private static String extractName(X509Certificate cert) {
+        String dn = cert.getSubjectDN().getName();
+        return (dn.startsWith("CN=") || dn.startsWith("cn=")) ? dn.substring(3) : dn; 
+    }
         
     private Optional<HttpCookie> getCookieFromServer() {
         LOG.entry();
         RestTemplate restTemplate = new RestTemplate();
-        byte[] authRequestBytes = formatAuthRequest(KeyPairs.DEFAULT_SERVICE_ACCOUNT);
+        X509Certificate cert = keyManager.getCertificate(KeyPairs.DEFAULT_SERVICE_ACCOUNT);
+        byte[] authRequestBytes = formatAuthRequest(extractName(cert));
         byte[] signature = signAuthRequest(authRequestBytes, KeyPairs.DEFAULT_SERVICE_ACCOUNT);
         Encoder base64 = Base64.getUrlEncoder();
         String authRequestBase64 = base64.encodeToString(authRequestBytes);
