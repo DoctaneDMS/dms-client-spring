@@ -5,7 +5,7 @@
  */
 package com.softwareplumbers.dms.rest.client.spring;
 
-import com.softwareplumbers.dms.DocumentService;
+import com.softwareplumbers.dms.RepositoryService;
 import com.softwareplumbers.keymanager.KeyManager;
 import java.security.KeyStoreException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,7 +44,7 @@ public class TmpConfig {
     }
     
     @Bean
-    public DocumentService testService() throws KeyStoreException {
+    public RepositoryService testService() throws KeyStoreException {
         DocumentServiceImpl service = new DocumentServiceImpl();
         service.setDocumentAPIURL("http://localhost:8080/docs/tmp/");
         service.setLoginHandler(loginHandler());

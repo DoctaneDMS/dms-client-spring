@@ -15,6 +15,7 @@ import com.softwareplumbers.dms.Exceptions;
 import com.softwareplumbers.dms.Exceptions.*;
 import com.softwareplumbers.dms.RepositoryService;
 import com.softwareplumbers.dms.InputStreamSupplier;
+import com.softwareplumbers.dms.OutputStreamConsumer;
 import com.softwareplumbers.dms.NamedRepositoryObject;
 import com.softwareplumbers.dms.Options;
 import com.softwareplumbers.dms.Reference;
@@ -23,11 +24,10 @@ import com.softwareplumbers.dms.common.impl.LocalData;
 import com.softwareplumbers.dms.common.impl.DocumentLinkImpl;
 import com.softwareplumbers.dms.common.impl.WorkspaceImpl;
 import com.softwareplumbers.dms.common.impl.RepositoryObjectFactory;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.PipedInputStream;
-import java.io.PipedOutputStream;
 import java.io.StringReader;
 import java.net.URI;
 import java.util.Collections;
@@ -60,6 +60,7 @@ public class DocumentServiceImpl implements RepositoryService {
  
     private String docsUrl;
     private String workspaceUrl;
+    private String catalogueUrl;
     private LoginHandler loginHandler;
     
     /** Set the URL for the Doctane web service to be called.
@@ -72,12 +73,20 @@ public class DocumentServiceImpl implements RepositoryService {
     
     /** Set the URL for the Doctane web service to be called.
      * 
-     * @param docsUrl 
+     * @param workspaceUrl 
      */
-    public void setDWorkspaceAPIURL(String workspaceUrl) { 
+    public void setWorkspaceAPIURL(String workspaceUrl) { 
         this.workspaceUrl = workspaceUrl;
     }
  
+    /** Set the URL for the Doctane web service to be called.
+     * 
+     * @param workspaceUrl 
+     */
+    public void setCatalogueAPIURL(String catalogueUrl) { 
+        this.catalogueUrl = catalogueUrl;
+    }
+    
     /** Set the class that will handle authentication with the Doctane web service.
      * 
      * @param loginHandler 
@@ -192,74 +201,147 @@ public class DocumentServiceImpl implements RepositoryService {
         LOG.exit();
     }
     
-    protected static boolean writeBytes(ClientHttpResponse response, OutputStream out) throws IOException {
+    protected static ServerError rawError(ClientHttpResponse response) {
+        try {
+            return new ServerError(response.getStatusCode().getReasonPhrase());
+        } catch (IOException ioe) {
+            // Oh, FFS
+            return new ServerError("unknown server error");
+        }
+    }
+   
+    
+    protected static void writeBytes(ClientHttpResponse response, OutputStream out) throws IOException {
         
-        if (response.getStatusCode() != HttpStatus.OK) return false;
-        try (InputStream is = response.getBody()) {
-            byte[] buf = new byte[1024];
-            int len;
-            while ((len = is.read(buf)) >= 0) { out.write(buf, 0, len); }
-        } 
-        out.close();
-        return true;
+        if (response.getStatusCode() != HttpStatus.OK) throw getDefaultError(response.getBody()).orElseGet(()->new RemoteException(rawError(response)));
+        OutputStreamConsumer.of(()->response.getBody()).consume(out);
     } 
     
-    protected boolean writeData(URI uri, OutputStream out) throws IOException {
+    protected void writeData(URI uri, OutputStream out) throws IOException {
         LOG.entry(uri, out);
         RestTemplate restTemplate = new RestTemplate();
-        return LOG.exit(
-            restTemplate.execute(
+        restTemplate.execute(
                 uri, 
                 HttpMethod.GET, 
                 request -> loginHandler.applyCredentials(request.getHeaders()), 
-                response -> writeBytes(response, out)
-            )
+                response -> { writeBytes(response, out); return null; }
         );
+        LOG.exit();
+    }
+    
+    private static void addOptions(UriComponentsBuilder builder, Options.Option... options) {
+        for (Options.Option option : options) {
+            if (!option.getName().equals(Options.PART.name)) builder.queryParam(option.getName(), option.getValue());
+        }
+    }
+    
+    private static void addRootId(UriComponentsBuilder builder, String rootId) {
+        if (rootId != Constants.ROOT_ID) builder.path("~" + rootId + "/");
+    }
+
+    private static void addDocumentId(UriComponentsBuilder builder, String documentId) {
+        if (documentId != Constants.NO_ID) builder.path("~" + documentId + "/");
+    }
+    
+    private static void addReference(UriComponentsBuilder builder, Reference reference) {
+        if (reference != Constants.NO_REFERENCE) builder.path(reference.id).path("/");
+        if (reference.version != null) builder.queryParam("version", reference.version);
+    }
+    
+    private static void addObjectName(UriComponentsBuilder builder, QualifiedName objectName) {
+        if (!objectName.isEmpty()) builder.path(objectName.join("/")).path("/");
+    }
+    
+    private static void addPartName(UriComponentsBuilder builder, Options.Option... options) {
+        Optional<QualifiedName> partName = Options.PART.getValue(options);
+        if (partName.isPresent()) builder.path("~/").path(partName.get().join("/")).path("/");
+    }
+    
+    private static void addPartName(UriComponentsBuilder builder, Optional<QualifiedName> partName) {
+        if (partName.isPresent()) builder.path("~/").path(partName.get().join("/")).path("/");
+    }
+    
+    private static void addQuery(UriComponentsBuilder builder, Query query) {
+        if (!query.isUnconstrained()) builder.queryParam("query", query.urlEncode());
     }
     
     @Override
     public void writeData(Reference reference, Optional<QualifiedName> partName, OutputStream out) throws InvalidReference, IOException {
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
-        builder.path("{documentId}/");
-        if (partName.isPresent()) builder.path("~/").path(partName.get().join("/")).path("/");
+        addReference(builder, reference);
+        addPartName(builder, partName);
         builder.path("file");
-        if (reference.version != null) builder = builder.queryParam("version", reference.version);
-        if (!writeData(builder.buildAndExpand(reference.id).toUri(), out)) throw new InvalidReference(reference);
+        try {
+            writeData(builder.buildAndExpand(reference.id).toUri(), out);
+        } catch (RemoteException re) {
+            re.rethrowAsLocal(InvalidReference.class);
+            throw re;
+        }
+    }
+        
+    @Override
+    public InputStream getData(Reference reference, Optional<QualifiedName> partName) throws IOException {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
+        addReference(builder, reference);
+        addPartName(builder, partName);
+        builder.path("file");
+        if (reference.version != null) builder = builder.queryParam("version", reference.version);  
+        final URI uri = builder.buildAndExpand(reference.id).toUri();
+        return InputStreamSupplier.of(out->writeData(uri, out)).get();
     }
     
     @Override
-    public InputStream getData(Reference reference, Optional<QualifiedName> partName) throws IOException {        
-        PipedOutputStream out = new PipedOutputStream();
-        PipedInputStream in = new PipedInputStream(out);
-        
-        new Thread(()-> { 
-            try {
-                writeData(reference, partName, out); 
-            } catch (InvalidReference | IOException e) {
-                // Hopefully this will force an IOException in the reading thread
-                try { in.close(); } catch (IOException e2) { }
-            } 
-        }).start();
+    public InputStream getData(String rootId, QualifiedName objectName, Options.Get... options) throws InvalidObjectName, IOException {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
+        addRootId(builder, rootId);
+        addObjectName(builder, objectName);
+        addPartName(builder, options);
+        builder.path("file");
+        URI uri = builder.build().toUri();
+        try {
+            return InputStreamSupplier.of(out->writeData(uri, out)).get();        
+        } catch (RemoteException re) {
+            re.rethrowAsLocal(InvalidObjectName.class);
+            throw re;
+        }
+    }
 
-        return in;
+    @Override
+    public void writeData(String rootId, QualifiedName objectName, OutputStream out, Options.Get... options) throws InvalidObjectName, IOException {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
+        addRootId(builder, rootId);
+        addObjectName(builder, objectName);
+        addPartName(builder, options);
+        builder.path("file");
+        try {
+            writeData(builder.build().toUri(), out);
+        } catch (RemoteException re) {
+            re.rethrowAsLocal(InvalidObjectName.class);
+            throw re;
+        }
     }
     
-    protected RemoteException getDefaultError(HttpStatusCodeException e) {
-        LOG.entry(e);
-
-        String body = e.getResponseBodyAsString();
+    protected static Optional<RemoteException> getDefaultError(InputStream body) {
         JsonObject message = null;
         try {
-            message = Json.createReader(new StringReader(body)).readObject();
+            message = Json.createReader(body).readObject();
         } catch (RuntimeException je) {
             // suppress
         }
         if (message != null)
-            return new RemoteException(Exceptions.buildException(message));
-        else {
+            return Optional.of(new RemoteException(Exceptions.buildException(message)));
+        else
+            return Optional.empty();
+    }
+    
+    protected static RemoteException getDefaultError(HttpStatusCodeException e) {
+        LOG.entry(e);
+        InputStream body = new ByteArrayInputStream(e.getResponseBodyAsByteArray());
+        Optional<RemoteException> re = getDefaultError(body);
+        return re.orElseGet(() -> {
             LOG.warn("Unexplained error {} : {}", e.getRawStatusCode(), e.getResponseBodyAsString());
             return new RemoteException(new ServerError(e.getStatusText()));
-        }
+        });
     }
     
     @Override
@@ -319,19 +401,7 @@ public class DocumentServiceImpl implements RepositoryService {
         }    
     }
 
-    private static void addOptions(UriComponentsBuilder builder, Options.Option... options) {
-        for (Options.Option option : options) {
-            if (!option.getName().equals(Options.PART.name)) builder.queryParam(option.getName(), option.getValue());
-        }
-    }
-    
-    private static void addRootId(UriComponentsBuilder builder, String rootId) {
-        if (rootId != Constants.ROOT_ID) builder.path("~" + rootId + "/");
-    }
-    
-    private static void addObjectName(UriComponentsBuilder builder, QualifiedName objectName) {
-        if (!objectName.isEmpty()) builder.path(objectName.join("/")).path("/");
-    }
+
     
     @Override
     public DocumentLink getDocumentLink(String rootId, QualifiedName workspaceName, String docId, Options.Get... options) throws InvalidWorkspace, InvalidObjectName, InvalidDocumentId {
@@ -508,7 +578,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addRootId(builder, rootId);
             addObjectName(builder, objectName);
             addOptions(builder, options);
-            Workspace workspace = new WorkspaceImpl(objectName, state, metadata, false, LocalData.NONE);
+            Workspace workspace = new WorkspaceImpl(objectName, Constants.NO_ID, state, metadata, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, workspace.toJson());
             return LOG.exit((Workspace)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
@@ -528,7 +598,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addRootId(builder, rootId);
             addObjectName(builder, workspaceName);
             addOptions(builder, options);
-            Workspace workspace = new WorkspaceImpl(workspaceName, state, metadata, false, LocalData.NONE);
+            Workspace workspace = new WorkspaceImpl(workspaceName, Constants.NO_ID, state, metadata, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.POST, workspace.toJson());
             return LOG.exit((Workspace)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
@@ -548,7 +618,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addRootId(builder, rootId);
             addObjectName(builder, objectName);
             addOptions(builder, options);
-            Workspace workspace = new WorkspaceImpl(objectName, state, metadata, false, LocalData.NONE);
+            Workspace workspace = new WorkspaceImpl(objectName, Constants.NO_ID, state, metadata, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, workspace.toJson());
             return LOG.exit((Workspace)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
@@ -577,63 +647,196 @@ public class DocumentServiceImpl implements RepositoryService {
         delete(builder.build().toUri());
     }
 
+
+
     @Override
-    public InputStream getData(String rootId, QualifiedName objectName, Options.Get... gets) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    public DocumentPart getPart(Reference reference, QualifiedName partName) throws InvalidReference, InvalidObjectName {
+        LOG.entry();
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
+            addReference(builder, reference);
+            addPartName(builder, Optional.of(partName));
+            JsonObject result = getJson(builder.build().toUri());
+            return LOG.exit((DocumentPart)factory.build(result, Optional.empty()));
+        } catch (HttpStatusCodeException e) {
+            RemoteException re = getDefaultError(e);
+            re.rethrowAsLocal(InvalidReference.class);
+            re.rethrowAsLocal(InvalidObjectName.class);
+            throw re; 
+        } 
     }
 
     @Override
-    public void writeData(String rootId, QualifiedName objectName, OutputStream out, Options.Get... gets) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    public Stream<DocumentPart> catalogueParts(Reference reference, QualifiedName partName) throws InvalidReference, InvalidObjectName {
+        LOG.entry();
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
+            addReference(builder, reference);
+            addPartName(builder, Optional.of(partName));
+            URI uri = builder.build().toUri();
+            InputStreamSupplier result = InputStreamSupplier.of(out->writeData(uri, out)); 
+            return LOG.exit(factory.build(result.get()).map(DocumentPart.class::cast));
+        } catch (HttpStatusCodeException e) {
+            RemoteException re = getDefaultError(e);
+            re.rethrowAsLocal(InvalidReference.class);
+            re.rethrowAsLocal(InvalidObjectName.class);
+            throw re; 
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
-    public DocumentPart getPart(Reference rfrnc, QualifiedName qn) throws InvalidReference, InvalidObjectName {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    public DocumentLink getDocumentLink(String rootId, QualifiedName objectName, Options.Get... options) throws InvalidWorkspace, InvalidObjectName {
+        LOG.entry();
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
+            addRootId(builder, rootId);
+            addObjectName(builder, objectName);
+            addOptions(builder, options);
+            JsonObject result = getJson(builder.build().toUri());
+            return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
+        } catch (HttpStatusCodeException e) {
+            RemoteException re = getDefaultError(e);
+            re.rethrowAsLocal(InvalidWorkspace.class);
+            re.rethrowAsLocal(InvalidObjectName.class);
+            throw re; 
+        } 
     }
 
     @Override
-    public Stream<DocumentPart> catalogueParts(Reference rfrnc, QualifiedName qn) throws InvalidReference, InvalidObjectName {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    public Stream<Document> catalogue(Query query, boolean searchHistory) {
+        LOG.entry();
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(catalogueUrl);
+            addQuery(builder, query);
+            if (searchHistory) addOptions(builder, Options.SEARCH_OLD_VERSIONS);
+            URI uri = builder.build().toUri();
+            InputStreamSupplier result = InputStreamSupplier.of(out->writeData(uri, out)); 
+            return LOG.exit(factory.build(result.get()).map(Document.class::cast));
+        } catch (HttpStatusCodeException e) {
+            RemoteException re = getDefaultError(e);
+            throw re; 
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
-    public DocumentLink getDocumentLink(String rootId, QualifiedName objectName, Options.Get... gets) throws InvalidWorkspace, InvalidObjectName {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    public Stream<NamedRepositoryObject> catalogueById(String rootId, Query query, Options.Search... options) {
+        LOG.entry();
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
+            addRootId(builder, rootId);
+            addQuery(builder, query);
+            addOptions(builder, options);
+            URI uri = builder.build().toUri();
+            InputStreamSupplier result = InputStreamSupplier.of(out->writeData(uri, out)); 
+            return LOG.exit(factory.build(result.get()).map(NamedRepositoryObject.class::cast));
+        } catch (HttpStatusCodeException e) {
+            RemoteException re = getDefaultError(e);
+            throw re; 
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
-    public Stream<Document> catalogue(Query query, boolean bln) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    public Stream<NamedRepositoryObject> catalogueByName(String rootId, QualifiedName objectName, Query query, Options.Search... options) throws InvalidWorkspace {
+        LOG.entry();
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
+            addRootId(builder, rootId);
+            addObjectName(builder, objectName);
+            addQuery(builder, query);
+            addOptions(builder, options);
+            URI uri = builder.build().toUri();
+            InputStreamSupplier result = InputStreamSupplier.of(out->writeData(uri, out)); 
+            return LOG.exit(factory.build(result.get()).map(NamedRepositoryObject.class::cast));
+        } catch (HttpStatusCodeException e) {
+            RemoteException re = getDefaultError(e);
+            throw re; 
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
-    public Stream<NamedRepositoryObject> catalogueById(String string, Query query, Options.Search... searchs) {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    public Stream<Document> catalogueHistory(Reference reference, Query query) throws InvalidReference {
+        LOG.entry();
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(catalogueUrl);
+            addReference(builder, reference);
+            addQuery(builder, query);
+            URI uri = builder.build().toUri();
+            InputStreamSupplier result = InputStreamSupplier.of(out->writeData(uri, out)); 
+            return LOG.exit(factory.build(result.get()).map(Document.class::cast));
+        } catch (HttpStatusCodeException e) {
+            RemoteException re = getDefaultError(e);
+            throw re; 
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
-    public Stream<NamedRepositoryObject> catalogueByName(String rootId, QualifiedName objectName, Query query, Options.Search... searchs) throws InvalidWorkspace {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    public NamedRepositoryObject getObjectByName(String rootId, QualifiedName objectName, Options.Get... options) throws InvalidWorkspace, InvalidObjectName {
+        LOG.entry();
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
+            addRootId(builder, rootId);
+            addObjectName(builder, objectName);
+            addPartName(builder, options);
+            addOptions(builder, options);
+            JsonObject result = getJson(builder.build().toUri());
+            return LOG.exit((NamedRepositoryObject)factory.build(result, Optional.empty()));
+        } catch (HttpStatusCodeException e) {
+            RemoteException re = getDefaultError(e);
+            re.rethrowAsLocal(InvalidWorkspace.class);
+            re.rethrowAsLocal(InvalidObjectName.class);
+            throw re; 
+        }
     }
 
     @Override
-    public Stream<Document> catalogueHistory(Reference rfrnc, Query query) throws InvalidReference {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    public Workspace getWorkspaceByName(String rootId, QualifiedName objectName) throws InvalidWorkspace, InvalidObjectName {
+        LOG.entry();
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
+            addRootId(builder, rootId);
+            addObjectName(builder, objectName);
+            //addPartName(builder, options);
+            //addOptions(builder, options);
+            JsonObject result = getJson(builder.build().toUri());
+            return LOG.exit((Workspace)factory.build(result, Optional.empty()));
+        } catch (HttpStatusCodeException e) {
+            RemoteException re = getDefaultError(e);
+            re.rethrowAsLocal(InvalidWorkspace.class);
+            re.rethrowAsLocal(InvalidObjectName.class);
+            throw re; 
+        }
     }
 
     @Override
-    public NamedRepositoryObject getObjectByName(String rootId, QualifiedName objectName, Options.Get... gets) throws InvalidWorkspace, InvalidObjectName {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
-    }
-
-    @Override
-    public Workspace getWorkspaceByName(String string, QualifiedName qn) throws InvalidWorkspace, InvalidObjectName {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
-    }
-
-    @Override
-    public Stream<DocumentLink> listWorkspaces(String rootId, QualifiedName objectName, Query query) throws InvalidDocumentId {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    public Stream<DocumentLink> listWorkspaces(String documentId, QualifiedName pathFilter, Query query) throws InvalidDocumentId {
+        LOG.entry();
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
+            if (!pathFilter.isEmpty()) {
+                addObjectName(builder, pathFilter);
+                addDocumentId(builder, documentId);
+            } else {
+                builder.queryParam("id", documentId);
+            }
+            addQuery(builder, query);
+            URI uri = builder.build().toUri();
+            InputStreamSupplier result = InputStreamSupplier.of(out->writeData(uri, out)); 
+            return LOG.exit(factory.build(result.get()).map(DocumentLink.class::cast));
+        } catch (HttpStatusCodeException e) {
+            RemoteException re = getDefaultError(e);
+            throw re; 
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 }
