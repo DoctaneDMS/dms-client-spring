@@ -75,11 +75,11 @@ sourceCompatibility = 1.8
 targetCompatibility = 1.8
 
 dependencies {
-    compile group: 'com.softwareplumbers.oss', name:'dms-interface-core', version: 'master-SNAPSHOT'
+    compile group: 'com.softwareplumbers.oss', name:'dms-interface-core', version: 'PartAsOption-SNAPSHOT'
     compile group: 'com.softwareplumbers.oss', name:'key-manager', version: 'master-SNAPSHOT'
     compile group: 'org.springframework', name: 'spring-web', version: '4.3.8.RELEASE'
     compile group: 'org.slf4j', name: 'slf4j-ext', version: '1.7.30'
-    testCompile group: 'com.softwareplumbers.oss', name: 'dms-interface-core', version: 'master-SNAPSHOT', classifier: 'tests'
+    testCompile group: 'com.softwareplumbers.oss', name: 'dms-interface-core', version: 'PartAsOption-SNAPSHOT', classifier: 'tests'
     testImplementation group: 'ch.qos.logback', name: 'logback-classic', version: '1.2.3'
     testImplementation 'org.springframework:spring-test:4.3.8.RELEASE'
     runtime group: 'org.glassfish', name: 'javax.json', version: '1.0.4'
