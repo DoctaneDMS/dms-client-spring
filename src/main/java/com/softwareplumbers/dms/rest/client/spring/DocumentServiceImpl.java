@@ -21,6 +21,7 @@ import com.softwareplumbers.dms.Reference;
 import com.softwareplumbers.dms.Workspace;
 import com.softwareplumbers.dms.common.impl.LocalData;
 import com.softwareplumbers.dms.common.impl.DocumentLinkImpl;
+import com.softwareplumbers.dms.common.impl.WorkspaceImpl;
 import com.softwareplumbers.dms.common.impl.RepositoryObjectFactory;
 import java.io.IOException;
 import java.io.InputStream;
@@ -175,6 +176,20 @@ public class DocumentServiceImpl implements RepositoryService {
             LOG.warn("failed to parse Json: {}", body);
             throw e;
         }
+    }
+    
+    protected void delete(URI uri) {
+        LOG.entry(uri);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(Collections.singletonList(org.springframework.http.MediaType.APPLICATION_JSON));
+        loginHandler.applyCredentials(headers);
+
+        RestTemplate restTemplate = new RestTemplate();
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                uri, HttpMethod.DELETE, new HttpEntity<>(headers), String.class);
+
+        LOG.exit();
     }
     
     protected static boolean writeBytes(ClientHttpResponse response, OutputStream out) throws IOException {
@@ -488,27 +503,78 @@ public class DocumentServiceImpl implements RepositoryService {
 
     @Override
     public Workspace createWorkspaceByName(String rootId, QualifiedName objectName, Workspace.State state, JsonObject metadata, Options.Create... options) throws InvalidWorkspaceState, InvalidWorkspace {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
+            addRootId(builder, rootId);
+            addObjectName(builder, objectName);
+            addOptions(builder, options);
+            Workspace workspace = new WorkspaceImpl(objectName, state, metadata, false, LocalData.NONE);
+            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, workspace.toJson());
+            return LOG.exit((Workspace)factory.build(result, Optional.empty()));
+        } catch (HttpStatusCodeException e) {
+            RemoteException re = getDefaultError(e);
+            re.rethrowAsLocal(InvalidWorkspace.class);
+            re.rethrowAsLocal(InvalidWorkspaceState.class);
+            throw re; 
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
-    public Workspace createWorkspaceAndName(String rootId, QualifiedName objectName, Workspace.State state, JsonObject metadata, Options.Create... options) throws InvalidWorkspaceState, InvalidWorkspace {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    public Workspace createWorkspaceAndName(String rootId, QualifiedName workspaceName, Workspace.State state, JsonObject metadata, Options.Create... options) throws InvalidWorkspaceState, InvalidWorkspace {
+         try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
+            addRootId(builder, rootId);
+            addObjectName(builder, workspaceName);
+            addOptions(builder, options);
+            Workspace workspace = new WorkspaceImpl(workspaceName, state, metadata, false, LocalData.NONE);
+            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.POST, workspace.toJson());
+            return LOG.exit((Workspace)factory.build(result, Optional.empty()));
+        } catch (HttpStatusCodeException e) {
+            RemoteException re = getDefaultError(e);
+            re.rethrowAsLocal(InvalidWorkspace.class);
+            re.rethrowAsLocal(InvalidWorkspaceState.class);
+            throw re; 
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }    
     }
 
     @Override
     public Workspace updateWorkspaceByName(String rootId, QualifiedName objectName, Workspace.State state, JsonObject metadata, Options.Update... options) throws InvalidWorkspace {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+         try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
+            addRootId(builder, rootId);
+            addObjectName(builder, objectName);
+            addOptions(builder, options);
+            Workspace workspace = new WorkspaceImpl(objectName, state, metadata, false, LocalData.NONE);
+            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, workspace.toJson());
+            return LOG.exit((Workspace)factory.build(result, Optional.empty()));
+        } catch (HttpStatusCodeException e) {
+            RemoteException re = getDefaultError(e);
+            re.rethrowAsLocal(InvalidWorkspace.class);
+            throw re; 
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
-    public void deleteDocument(String rootId, QualifiedName objectName, String string1) throws InvalidWorkspace, InvalidDocumentId, InvalidWorkspaceState {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    public void deleteDocument(String rootId, QualifiedName workspaceName, String documentId) throws InvalidWorkspace, InvalidDocumentId, InvalidWorkspaceState {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
+        addRootId(builder, rootId);
+        addObjectName(builder, workspaceName);
+        addDocumentId(builder, documentId);
+        delete(builder.build().toUri());
     }
 
     @Override
-    public void deleteObjectByName(String string, QualifiedName qn) throws InvalidWorkspace, InvalidObjectName, InvalidWorkspaceState {
-        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    public void deleteObjectByName(String rootId, QualifiedName objectName) throws InvalidWorkspace, InvalidObjectName, InvalidWorkspaceState {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
+        addRootId(builder, rootId);
+        addObjectName(builder, objectName);
+        delete(builder.build().toUri());
     }
 
     @Override
