@@ -47,6 +47,8 @@ public class TmpConfig {
     public RepositoryService testService() throws KeyStoreException {
         DocumentServiceImpl service = new DocumentServiceImpl();
         service.setDocumentAPIURL("http://localhost:8080/docs/tmp/");
+        service.setWorkspaceAPIURL("http://localhost:8080/ws/tmp/");
+        service.setCatalogueAPIURL("http://localhost:8080/cat/tmp/");
         service.setLoginHandler(loginHandler());
         return service;
     }

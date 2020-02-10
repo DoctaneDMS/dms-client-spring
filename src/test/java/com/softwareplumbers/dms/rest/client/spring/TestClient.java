@@ -39,6 +39,11 @@ public class TestClient extends DocumentServiceTest {
     public Reference randomDocumentReference() {
         return new Reference(UUID.randomUUID().toString(), UUID.randomUUID().toString());
     }
+    
+    @Override
+    public String randomWorkspaceId() {
+        return UUID.randomUUID().toString();
+    }
 
     @Override
     public JsonObject randomDocumentMetadata() {

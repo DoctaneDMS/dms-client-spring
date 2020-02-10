@@ -47,6 +47,8 @@ public class DemoConfig {
     public RepositoryService testService() throws KeyStoreException {
         DocumentServiceImpl service = new DocumentServiceImpl();
         service.setDocumentAPIURL("https://api.doctane.com/rest-server-filenet/docs/test/");
+        service.setWorkspaceAPIURL("https://api.doctane.com/rest-server-filenet/ws/test/");
+        service.setCatalogueAPIURL("https://api.doctane.com/rest-server-filenet/cat/test/");
         service.setLoginHandler(loginHandler());
         return service;
     }
