@@ -242,7 +242,7 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     private static void addCreateOptions(UriComponentsBuilder builder, Options.Create... options) {        
-        if (Options.RETURN_EXISTING_LINK_TO_SAME_DOCUMENT.isIn(options)) builder.queryParam("returnExisting", "true");
+        if (!Options.RETURN_EXISTING_LINK_TO_SAME_DOCUMENT.isIn(options)) builder.queryParam("returnExisting", "false");
         if (Options.CREATE_MISSING_PARENT.isIn(options)) builder.queryParam("createWorkspace", "true");
     }
     
@@ -542,7 +542,15 @@ public class DocumentServiceImpl implements RepositoryService {
             addRootId(builder, rootId);
             addObjectName(builder, objectName);
             addUpdateOptions(builder, options);
-            JsonObject result = sendMultipart(builder.build().toUri(), HttpMethod.PUT, mediaType, iss, metadata);
+            
+            JsonObject result = null;
+            if (iss == null || mediaType == null) {
+                DocumentLink link = new DocumentLinkImpl(objectName, Constants.NO_REFERENCE, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, metadata, false, LocalData.NONE);
+                result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
+            } else {
+                result = sendMultipart(builder.build().toUri(), HttpMethod.PUT, mediaType, iss, metadata);
+            }
+            
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
@@ -607,8 +615,8 @@ public class DocumentServiceImpl implements RepositoryService {
         LOG.entry(rootId, objectName, targetRootId, targetName, createParent);
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
-            addObjectName(builder, objectName);
+            addRootId(builder, targetRootId);
+            addObjectName(builder, targetName);
             addCopyOptions(builder, Options.Create.EMPTY.addOptionIf(Options.CREATE_MISSING_PARENT, createParent).build());
             Workspace workspace = new WorkspaceImpl(objectName, Constants.NO_ID, Constants.NO_STATE, Constants.NO_METADATA, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, workspace.toJson());
@@ -764,7 +772,7 @@ public class DocumentServiceImpl implements RepositoryService {
     public DocumentLink getDocumentLink(String rootId, QualifiedName objectName, Options.Get... options) throws InvalidWorkspace, InvalidObjectName {
         LOG.entry();
         try {
-            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
             addRootId(builder, rootId);
             addObjectName(builder, objectName);
             addGetOptions(builder, options);
