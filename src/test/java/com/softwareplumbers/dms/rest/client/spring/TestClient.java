@@ -57,4 +57,11 @@ public class TestClient extends DocumentServiceTest {
         Reference ref = service.createDocument("", ()->toStream(TestUtils.randomText()), Json.createObjectBuilder().build());
         assertNotNull(ref);
     }
+
+    @Override
+    public JsonObject randomWorkspaceMetadata() {
+        return Json.createObjectBuilder()
+            .add("Description", randomText())
+            .build();
+    }
 }
