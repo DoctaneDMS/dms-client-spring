@@ -7,6 +7,7 @@ package com.softwareplumbers.dms.rest.client.spring;
 
 import com.softwareplumbers.dms.RepositoryService;
 import com.softwareplumbers.keymanager.KeyManager;
+import java.io.IOException;
 import java.security.KeyStoreException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -26,16 +27,17 @@ public class TmpConfig {
 	Environment env;
     
     @Bean
-    public KeyManager keyManager() throws KeyStoreException { 
+    public KeyManager keyManager() throws KeyStoreException, IOException { 
         KeyManager<SecretKeys, KeyPairs> keyManager = new KeyManager<>();
-        keyManager.setLocation("/var/tmp/doctane-proxy.keystore");
+        keyManager.setLocation("/var/tmp/doctane-proxy-client1.keystore");
+        keyManager.setPublishLocation("/var/tmp/certs");
         keyManager.setPassword(env.getProperty("doctane.keystore.password"));
         keyManager.setRequiredSecretKeys(SecretKeys.class);
         keyManager.setRequiredKeyPairs(KeyPairs.class);
         return keyManager;
     }
     
-    @Bean LoginHandler loginHandler() throws KeyStoreException {
+    @Bean LoginHandler loginHandler() throws KeyStoreException, IOException {
         SignedRequestLoginHandler handler = new SignedRequestLoginHandler();
         handler.setKeyManager(keyManager());
         handler.setAuthURI("http://localhost:8080/auth/tmp/service?request={request}&signature={signature}");
@@ -44,7 +46,7 @@ public class TmpConfig {
     }
     
     @Bean
-    public RepositoryService testService() throws KeyStoreException {
+    public RepositoryService testService() throws KeyStoreException, IOException {
         DocumentServiceImpl service = new DocumentServiceImpl();
         service.setDocumentAPIURL("http://localhost:8080/docs/tmp/");
         service.setWorkspaceAPIURL("http://localhost:8080/ws/tmp/");
