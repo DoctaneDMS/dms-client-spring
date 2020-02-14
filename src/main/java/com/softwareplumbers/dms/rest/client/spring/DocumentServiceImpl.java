@@ -900,7 +900,7 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public Stream<DocumentLink> listWorkspaces(String documentId, QualifiedName pathFilter, Query query) throws InvalidDocumentId {
+	public Stream<DocumentLink> listWorkspaces(String documentId, QualifiedName pathFilter, Query query, Options.Search... options) throws InvalidDocumentId {
         LOG.entry();
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
@@ -911,6 +911,7 @@ public class DocumentServiceImpl implements RepositoryService {
                 builder.queryParam("id", documentId);
             }
             addQuery(builder, query);
+            addSearchOptions(builder, options);
             URI uri = builder.build().toUri();
             InputStreamSupplier result = InputStreamSupplier.of(out->writeData(uri, out)); 
             return LOG.exit(factory.build(result.get()).map(DocumentLink.class::cast));
@@ -920,5 +921,10 @@ public class DocumentServiceImpl implements RepositoryService {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    @Override
+    public <T> Optional<T> getImplementation(Class<T> type) {
+        return (type.isAssignableFrom(this.getClass())) ? Optional.of((T)this) : Optional.empty();
     }
 }
