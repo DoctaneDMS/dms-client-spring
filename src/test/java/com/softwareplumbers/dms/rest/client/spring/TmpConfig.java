@@ -14,6 +14,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
+import com.softwareplumbers.dms.common.test.TestModel;
+import com.softwareplumbers.dms.common.test.TestModel.StringField;
+import com.softwareplumbers.dms.common.test.TestModel.BooleanField;
 
 /**
  *
@@ -54,4 +57,20 @@ public class TmpConfig {
         service.setLoginHandler(loginHandler());
         return service;
     }
+    
+    @Bean TestModel documentMetadataModel() {
+        return new TestModel(
+                new StringField("TradeDescription", "BR001", "BR002", "BR003", "BR004"),
+                new StringField("DocFaceRef", "Ref01", "Ref02", "Ref03", "Ref04"),
+                new BooleanField("BankDocument")
+        );
+    }
+
+    @Bean TestModel workspaceMetadataModel() {
+        return new TestModel(
+                new StringField("EventDescription", "Event01", "Event02", "Event03", "Event04"),
+                new StringField("Branch", "BR001", "BR002", "BR003", "BR004")
+        );
+    }
+
 }
