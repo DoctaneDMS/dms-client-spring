@@ -6,6 +6,7 @@
 package com.softwareplumbers.dms.rest.client.spring;
 
 import com.softwareplumbers.common.QualifiedName;
+import com.softwareplumbers.common.abstractpattern.parsers.Parsers;
 import com.softwareplumbers.common.abstractquery.Query;
 import com.softwareplumbers.dms.Constants;
 import com.softwareplumbers.dms.Document;
@@ -32,6 +33,7 @@ import java.io.StringReader;
 import java.net.URI;
 import java.util.Collections;
 import java.util.Optional;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 import javax.json.Json;
 import javax.json.JsonObject;
@@ -272,7 +274,7 @@ public class DocumentServiceImpl implements RepositoryService {
     }
     
     private static void addObjectName(UriComponentsBuilder builder, QualifiedName objectName) {
-        if (!objectName.isEmpty()) builder.path(objectName.join("/")).path("/");
+        if (objectName != null && !objectName.isEmpty()) builder.path(objectName.join("/")).path("/");
     }
     
     private static void addPartName(UriComponentsBuilder builder, Options.Option... options) {
@@ -285,7 +287,7 @@ public class DocumentServiceImpl implements RepositoryService {
     }
     
     private static void addQuery(UriComponentsBuilder builder, Query query) {
-        if (!query.isUnconstrained()) builder.queryParam("query", query.urlEncode());
+        if (!query.isUnconstrained()) builder.queryParam("filter", query.urlEncode());
     }
     
     @Override
@@ -826,6 +828,15 @@ public class DocumentServiceImpl implements RepositoryService {
     @Override
     public Stream<NamedRepositoryObject> catalogueByName(String rootId, QualifiedName objectName, Query query, Options.Search... options) throws InvalidWorkspace {
         LOG.entry();
+        
+        //If there are no wildcards already, we need to add a "*" to the end of the name.
+        if (!Options.NO_IMPLICIT_WILDCARD.isIn(options)) {
+            Predicate<String> hasWildcards = element -> !Parsers.parseUnixWildcard(element).isSimple();
+            if (objectName.isEmpty() || objectName.indexFromEnd(hasWildcards) < 0) {
+                objectName = objectName.add("*");
+            }
+            }
+        
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
             addRootId(builder, rootId);
@@ -904,7 +915,7 @@ public class DocumentServiceImpl implements RepositoryService {
         LOG.entry();
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            if (!pathFilter.isEmpty()) {
+            if (pathFilter != null && !pathFilter.isEmpty()) {
                 addObjectName(builder, pathFilter);
                 addDocumentId(builder, documentId);
             } else {

@@ -17,7 +17,8 @@ import org.springframework.core.env.Environment;
 import com.softwareplumbers.dms.common.test.TestModel;
 import com.softwareplumbers.dms.common.test.TestModel.StringField;
 import com.softwareplumbers.dms.common.test.TestModel.BooleanField;
-
+import com.softwareplumbers.dms.common.test.TestModel.SessionIdField;
+import com.softwareplumbers.dms.common.test.TestModel.Field;
 /**
  *
  * @author jonathan
@@ -59,17 +60,23 @@ public class TmpConfig {
     }
     
     @Bean TestModel documentMetadataModel() {
-        return new TestModel(
+        Field uniqueField = new TestModel.IdField("idfield");
+        TestModel model = new TestModel(
                 new StringField("TradeDescription", "BR001", "BR002", "BR003", "BR004"),
                 new StringField("DocFaceRef", "Ref01", "Ref02", "Ref03", "Ref04"),
-                new BooleanField("BankDocument")
+                new BooleanField("BankDocument"),
+                new SessionIdField("BatchID"),
+                uniqueField
         );
+        model.setUniqueField(uniqueField);
+        return model;
     }
 
     @Bean TestModel workspaceMetadataModel() {
         return new TestModel(
                 new StringField("EventDescription", "Event01", "Event02", "Event03", "Event04"),
-                new StringField("Branch", "BR001", "BR002", "BR003", "BR004")
+                new StringField("Branch", "BR001", "BR002", "BR003", "BR004"),
+                new SessionIdField("TheirReference")
         );
     }
 
