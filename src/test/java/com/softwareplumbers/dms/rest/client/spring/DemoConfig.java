@@ -6,6 +6,7 @@
 package com.softwareplumbers.dms.rest.client.spring;
 
 import com.softwareplumbers.dms.RepositoryService;
+import com.softwareplumbers.dms.common.test.TestModel;
 import com.softwareplumbers.keymanager.KeyManager;
 import java.security.KeyStoreException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,7 +14,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
-
 /**
  *
  * @author jonathan
@@ -51,5 +51,25 @@ public class DemoConfig {
         service.setCatalogueAPIURL("https://api.doctane.com/rest-server-filenet/cat/test/");
         service.setLoginHandler(loginHandler());
         return service;
+    }
+    
+    @Bean TestModel documentMetadataModel() {
+        TestModel.Field uniqueField = new TestModel.IdField("DocFaceRef");
+        TestModel model = new TestModel(
+                new TestModel.StringField("TradeDescription", "BR001", "BR002", "BR003", "BR004"),
+                new TestModel.BooleanField("BankDocument"),
+                new TestModel.SessionIdField("BatchID"),
+                uniqueField
+        );
+        model.setUniqueField(uniqueField);
+        return model;
+    }
+
+    @Bean TestModel workspaceMetadataModel() {
+        return new TestModel(
+                new TestModel.StringField("EventDescription", "Event01", "Event02", "Event03", "Event04"),
+                new TestModel.StringField("Branch", "BR001", "BR002", "BR003", "BR004"),
+                new TestModel.SessionIdField("TheirReference")
+        );
     }
 }
