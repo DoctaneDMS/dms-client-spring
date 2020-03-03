@@ -83,7 +83,7 @@ public class DocumentServiceImpl implements RepositoryService {
  
     /** Set the URL for the Doctane web service to be called.
      * 
-     * @param workspaceUrl 
+     * @param catalogueUrl 
      */
     public void setCatalogueAPIURL(String catalogueUrl) { 
         this.catalogueUrl = catalogueUrl;
@@ -545,7 +545,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addObjectName(builder, objectName);
             addUpdateOptions(builder, options);
             
-            JsonObject result = null;
+            JsonObject result;
             if (iss == null || mediaType == null) {
                 DocumentLink link = new DocumentLinkImpl(objectName, Constants.NO_REFERENCE, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, metadata, false, LocalData.NONE);
                 result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
@@ -807,25 +807,6 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public Stream<NamedRepositoryObject> catalogueById(String rootId, Query query, Options.Search... options) {
-        LOG.entry();
-        try {
-            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
-            addQuery(builder, query);
-            addSearchOptions(builder, options);
-            URI uri = builder.build().toUri();
-            InputStreamSupplier result = InputStreamSupplier.of(out->writeData(uri, out)); 
-            return LOG.exit(factory.build(result.get()).map(NamedRepositoryObject.class::cast));
-        } catch (HttpStatusCodeException e) {
-            RemoteException re = getDefaultError(e);
-            throw re; 
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    @Override
     public Stream<NamedRepositoryObject> catalogueByName(String rootId, QualifiedName objectName, Query query, Options.Search... options) throws InvalidWorkspace {
         LOG.entry();
         
@@ -854,6 +835,28 @@ public class DocumentServiceImpl implements RepositoryService {
         }
     }
 
+    @Override
+    public Stream<NamedRepositoryObject> catalogueById(String rootId, QualifiedName workspaceName, String objectId, Query query, Options.Search... options) throws InvalidWorkspace {
+        LOG.entry();
+        
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
+            addRootId(builder, rootId);
+            addObjectName(builder, workspaceName);
+            addDocumentId(builder, objectId);
+            addQuery(builder, query);
+            addSearchOptions(builder, options);
+            URI uri = builder.build().toUri();
+            InputStreamSupplier result = InputStreamSupplier.of(out->writeData(uri, out)); 
+            return LOG.exit(factory.build(result.get()).map(NamedRepositoryObject.class::cast));
+        } catch (HttpStatusCodeException e) {
+            RemoteException re = getDefaultError(e);
+            throw re; 
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }    
+    
     @Override
     public Stream<Document> catalogueHistory(Reference reference, Query query) throws InvalidReference {
         LOG.entry();
