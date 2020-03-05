@@ -255,9 +255,13 @@ public class DocumentServiceImpl implements RepositoryService {
 
     private static void addSearchOptions(UriComponentsBuilder builder, Options.Search... options) {        
         if (Options.SEARCH_OLD_VERSIONS.isIn(options)) builder.queryParam("searchHistory", "true");
+        Optional<QualifiedName> part = Options.PART.getValue(options);
+        if (part.isPresent()) builder.path("~/").path(part.get().join("/")).path("/");
     }
     
     private static void addGetOptions(UriComponentsBuilder builder, Options.Get... options) {        
+        Optional<QualifiedName> part = Options.PART.getValue(options);
+        if (part.isPresent()) builder.path("~/").path(part.get().join("/")).path("/");
     }
     
     private static void addRootId(UriComponentsBuilder builder, String rootId) {
@@ -321,7 +325,6 @@ public class DocumentServiceImpl implements RepositoryService {
         addRootId(builder, rootId);
         addObjectName(builder, objectName);
         addPartName(builder, options);
-        builder.path("file");
         URI uri = builder.build().toUri();
         try {
             return InputStreamSupplier.of(out->writeData(uri, out)).get();        
@@ -337,7 +340,6 @@ public class DocumentServiceImpl implements RepositoryService {
         addRootId(builder, rootId);
         addObjectName(builder, objectName);
         addPartName(builder, options);
-        builder.path("file");
         try {
             writeData(builder.build().toUri(), out);
         } catch (RemoteException re) {
@@ -811,12 +813,12 @@ public class DocumentServiceImpl implements RepositoryService {
         LOG.entry();
         
         //If there are no wildcards already, we need to add a "*" to the end of the name.
-        if (!Options.NO_IMPLICIT_WILDCARD.isIn(options)) {
+        if (!Options.NO_IMPLICIT_WILDCARD.isIn(options) && !Options.PART.getValue(options).isPresent()) {
             Predicate<String> hasWildcards = element -> !Parsers.parseUnixWildcard(element).isSimple();
             if (objectName.isEmpty() || objectName.indexFromEnd(hasWildcards) < 0) {
                 objectName = objectName.add("*");
             }
-            }
+        }
         
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
