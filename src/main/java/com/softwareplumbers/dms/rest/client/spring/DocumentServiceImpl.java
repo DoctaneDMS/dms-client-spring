@@ -52,7 +52,7 @@ import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
-/** Implements the Doctane DocumentService interface on top of a Spring REST client.
+/** Implements the Doctane RepositoryService interface on top of a Spring REST client.
  *
  * @author SWPNET\jonessex
  */
@@ -67,7 +67,7 @@ public class DocumentServiceImpl implements RepositoryService {
     
     /** Set the URL for the Doctane web service to be called.
      * 
-     * @param docsUrl 
+     * @param docsUrl URL for Doctane document operations
      */
     public void setDocumentAPIURL(String docsUrl) { 
         this.docsUrl = docsUrl;
@@ -75,15 +75,15 @@ public class DocumentServiceImpl implements RepositoryService {
     
     /** Set the URL for the Doctane web service to be called.
      * 
-     * @param workspaceUrl 
-     */
+     * @param workspaceUrl URL for Doctane workspace operations
+     */ 
     public void setWorkspaceAPIURL(String workspaceUrl) { 
         this.workspaceUrl = workspaceUrl;
     }
  
     /** Set the URL for the Doctane web service to be called.
      * 
-     * @param catalogueUrl 
+     * @param catalogueUrl URL for Doctane catalogue operations
      */
     public void setCatalogueAPIURL(String catalogueUrl) { 
         this.catalogueUrl = catalogueUrl;
@@ -91,7 +91,7 @@ public class DocumentServiceImpl implements RepositoryService {
     
     /** Set the class that will handle authentication with the Doctane web service.
      * 
-     * @param loginHandler 
+     * @param loginHandler Login handler which handle authentication process
      */
     public void setLoginHandler(LoginHandler loginHandler) {
         this.loginHandler = loginHandler;
@@ -117,7 +117,13 @@ public class DocumentServiceImpl implements RepositoryService {
     
     private final RepositoryObjectFactory factory = new RepositoryObjectFactory();
     
-    protected static HttpEntity<InputStreamResource> toEntity(InputStream is, String mimeType) {
+    /** Convert a stream and mime type into an HttpEntity we can send to the server.
+     * 
+     * @param is Input stream to send
+     * @param mimeType Type of data encoded in the stream
+     * @return An HttpEntity that can be sent to the server.
+     */
+    private static HttpEntity<InputStreamResource> toEntity(InputStream is, String mimeType) {
 	    InputStreamResource resource = new InputStreamResource(is);
 		HttpHeaders fileHeader = new HttpHeaders();
 		fileHeader.set("Content-Type", mimeType);
@@ -125,6 +131,16 @@ public class DocumentServiceImpl implements RepositoryService {
 	}
 	
         
+    /** Send multipart data (binary stream + JSON metadata) to the server.
+     * 
+     * @param uri URI to which we will send the data
+     * @param method HTTP method used to send the data (POST or PUT)
+     * @param mt Mime type of stream
+     * @param iss Supplier of input stream
+     * @param jo JSON object to send alongside the binary data.
+     * @return Parsed JSON object send by server as response.
+     * @throws IOException 
+     */
     protected JsonObject sendMultipart(URI uri, HttpMethod method, String mt, InputStreamSupplier iss, JsonObject jo) throws IOException {
         LOG.entry(uri, method, mt,iss, jo);
         if (jo == null) jo = Constants.EMPTY_METADATA;
@@ -152,6 +168,14 @@ public class DocumentServiceImpl implements RepositoryService {
         return LOG.exit(Json.createReader(new StringReader(response.getBody())).readObject());
     }
     
+    /** Send a JSON object to the server.
+     * 
+     * @param uri URI to which we will send the data
+     * @param method HTTP method used to send the data (POST or PUT)
+     * @param jo JSON object to send
+     * @return Parsed JSON object send by server as response.
+     * @throws IOException 
+     */
     protected JsonObject sendJson(URI uri, HttpMethod method, JsonObject jo) throws IOException {
         LOG.entry(uri, method, jo);
         HttpHeaders headers = new HttpHeaders();
@@ -169,6 +193,11 @@ public class DocumentServiceImpl implements RepositoryService {
         return LOG.exit(Json.createReader(new StringReader(response.getBody())).readObject());
     }
     
+    /** Get JSON from the server.
+     * 
+     * @param uri URI from which we will request JSON data
+     * @return Parsed JSON object send by server as response.
+     */
     protected JsonObject getJson(URI uri) {
         LOG.entry(uri);
         HttpHeaders headers = new HttpHeaders();
@@ -190,6 +219,10 @@ public class DocumentServiceImpl implements RepositoryService {
         }
     }
     
+    /** Send a DELETE operation to the server.
+     * 
+     * @param uri URI on which we will invoke DELETE.
+     */
     protected void delete(URI uri) {
         LOG.entry(uri);
         HttpHeaders headers = new HttpHeaders();
@@ -204,6 +237,11 @@ public class DocumentServiceImpl implements RepositoryService {
         LOG.exit();
     }
     
+    /** Convert a raw ClientHttpResponse into a ServerError exception 
+     * 
+     * @param response Response to convert
+     * @return A ServerError including any reason phrase from the response.
+     */
     protected static ServerError rawError(ClientHttpResponse response) {
         try {
             return new ServerError(response.getStatusCode().getReasonPhrase());
@@ -213,8 +251,7 @@ public class DocumentServiceImpl implements RepositoryService {
         }
     }
    
-    
-    protected static void writeBytes(ClientHttpResponse response, OutputStream out) throws IOException {
+    private static void writeBytes(ClientHttpResponse response, OutputStream out) throws IOException {
         
         if (response.getStatusCode() != HttpStatus.OK) {
             throw getDefaultError(response.getBody()).orElseGet(()->new RemoteException(rawError(response)));
@@ -222,6 +259,12 @@ public class DocumentServiceImpl implements RepositoryService {
         OutputStreamConsumer.of(()->response.getBody()).consume(out);
     } 
     
+    /** Write data retrieved from the given URI to an output stream.
+     * 
+     * @param uri URI from which we are retrieving data
+     * @param out Output stream to which we write the response
+     * @throws IOException 
+     */
     protected void writeData(URI uri, OutputStream out) throws IOException {
         LOG.entry(uri, out);
         RestTemplate restTemplate = new RestTemplate();
@@ -348,6 +391,11 @@ public class DocumentServiceImpl implements RepositoryService {
         }
     }
     
+    /** Parse a remote exception from a text stream.
+     * 
+     * @param body Text stream with JSON encoded remote error
+     * @return An error, if successfully parsed.
+     */
     protected static Optional<RemoteException> getDefaultError(InputStream body) {
         JsonObject message = null;
         try {
@@ -361,6 +409,16 @@ public class DocumentServiceImpl implements RepositoryService {
             return Optional.empty();
     }
     
+    /** Default error handler.
+     * 
+     * Where we have a server error message that can be parsed into a locally understood
+     * exception type, do this, and then wrap it in a RemoteException.
+     * 
+     * @see Exceptions#buildException(javax.json.JsonObject) 
+     * 
+     * @param e an HttpStatusCodeException originating from a REST call to a Doctane server.
+     * @return An appropriate RemoteException.
+     */
     protected static RemoteException getDefaultError(HttpStatusCodeException e) {
         LOG.entry(e);
         InputStream body = new ByteArrayInputStream(e.getResponseBodyAsByteArray());

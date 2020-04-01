@@ -3,7 +3,6 @@ package com.softwareplumbers.dms.rest.client.spring;
 import java.net.HttpCookie;
 import java.net.URI;
 import java.security.InvalidKeyException;
-import java.security.KeyPair;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.Signature;
@@ -20,7 +19,6 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriTemplate;
 
 import com.softwareplumbers.keymanager.KeyManager;
-import java.security.Key;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import javax.json.Json;
@@ -129,6 +127,7 @@ public class SignedRequestLoginHandler implements LoginHandler {
         LOG.exit();
     }
     
+    /** Null-arg constructor for Spring */
     public SignedRequestLoginHandler() {
         LOG.entry();
         this.keyManager = null;
@@ -137,6 +136,12 @@ public class SignedRequestLoginHandler implements LoginHandler {
         LOG.exit();
     }
     
+    /** Set the key manager.
+     * 
+     * Mainly for Spring configuration. Java code should use the three-argument constructor.
+     * 
+     * @param keyManager Key manager for this Doctane client.
+     */
     @Required
     public void setKeyManager(KeyManager<SecretKeys, KeyPairs> keyManager) { 
         LOG.entry(keyManager);
@@ -144,6 +149,12 @@ public class SignedRequestLoginHandler implements LoginHandler {
         LOG.exit();
     }
 
+    /** Set the authentication URI.
+     * 
+     * Mainly for Spring configuration. Java code should use the three-argument constructor.
+     * 
+     * @param authURI the URI on the Doctane server responsible for handling this authentication protocol.
+     */
     @Required
     public void setAuthURI(String authURI) { 
         LOG.entry(authURI);
@@ -151,6 +162,11 @@ public class SignedRequestLoginHandler implements LoginHandler {
         LOG.exit();
     }
     
+    /** Set the repository for which we are authenticating.
+     * 
+     * Mainly for Spring configuration. Java code should use the three-argument constructor.
+     * @param repository The Doctane repository for which we are authenticating
+     */
     @Required
     public void setRepository(String repository) { 
         LOG.entry(repository);

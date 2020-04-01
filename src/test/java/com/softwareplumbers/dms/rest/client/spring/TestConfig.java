@@ -14,9 +14,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
 
-/**
+/** Sample configuration for a Spring client.
  *
- * @author jonathan
+ * @author Jonathan Essex
  */
 @Profile("test")
 @Configuration
