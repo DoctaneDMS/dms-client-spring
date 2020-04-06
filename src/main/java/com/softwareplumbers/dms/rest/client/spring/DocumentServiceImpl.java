@@ -5,7 +5,7 @@
  */
 package com.softwareplumbers.dms.rest.client.spring;
 
-import com.softwareplumbers.common.QualifiedName;
+import com.softwareplumbers.common.immutablelist.QualifiedName;
 import com.softwareplumbers.common.abstractpattern.parsers.Parsers;
 import com.softwareplumbers.common.abstractquery.Query;
 import com.softwareplumbers.dms.Constants;
