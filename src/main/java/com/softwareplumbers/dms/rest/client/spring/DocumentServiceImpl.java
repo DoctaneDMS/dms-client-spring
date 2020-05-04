@@ -5,7 +5,6 @@
  */
 package com.softwareplumbers.dms.rest.client.spring;
 
-import com.softwareplumbers.common.immutablelist.QualifiedName;
 import com.softwareplumbers.common.abstractpattern.parsers.Parsers;
 import com.softwareplumbers.common.abstractquery.Query;
 import com.softwareplumbers.dms.Constants;
@@ -15,11 +14,14 @@ import com.softwareplumbers.dms.DocumentPart;
 import com.softwareplumbers.dms.Exceptions;
 import com.softwareplumbers.dms.Exceptions.*;
 import com.softwareplumbers.dms.RepositoryService;
+import com.softwareplumbers.dms.RepositoryPath;
 import com.softwareplumbers.common.pipedstream.InputStreamSupplier;
 import com.softwareplumbers.common.pipedstream.OutputStreamConsumer;
 import com.softwareplumbers.dms.NamedRepositoryObject;
 import com.softwareplumbers.dms.Options;
 import com.softwareplumbers.dms.Reference;
+import com.softwareplumbers.dms.RepositoryObject;
+import com.softwareplumbers.dms.VersionedRepositoryObject;
 import com.softwareplumbers.dms.Workspace;
 import com.softwareplumbers.dms.common.impl.LocalData;
 import com.softwareplumbers.dms.common.impl.DocumentLinkImpl;
@@ -298,21 +300,18 @@ public class DocumentServiceImpl implements RepositoryService {
 
     private static void addSearchOptions(UriComponentsBuilder builder, Options.Search... options) {        
         if (Options.SEARCH_OLD_VERSIONS.isIn(options)) builder.queryParam("searchHistory", "true");
-        Optional<QualifiedName> part = Options.PART.getValue(options);
-        if (part.isPresent()) builder.path("~/").path(part.get().join("/")).path("/");
+        if (Options.FREE_SEARCH.isIn(options)) builder.queryParam("FREE_SEARCH", "true");
     }
     
     private static void addGetOptions(UriComponentsBuilder builder, Options.Get... options) {        
-        Optional<QualifiedName> part = Options.PART.getValue(options);
-        if (part.isPresent()) builder.path("~/").path(part.get().join("/")).path("/");
     }
     
-    private static void addRootId(UriComponentsBuilder builder, String rootId) {
-        if (rootId != Constants.ROOT_ID) builder.path("~" + rootId + "/");
+    private static void addObjectName(UriComponentsBuilder builder, RepositoryPath objectName) {
+        if (objectName != null && !objectName.isEmpty()) builder.path(objectName.join("/")).path("/");
     }
 
-    private static void addDocumentId(UriComponentsBuilder builder, String documentId) {
-        if (documentId != Constants.NO_ID) builder.path("~" + documentId + "/");
+    private static void addQuery(UriComponentsBuilder builder, Query query) {
+        if (!query.isUnconstrained()) builder.queryParam("filter", query.urlEncode());
     }
     
     private static void addReference(UriComponentsBuilder builder, Reference reference) {
@@ -320,28 +319,11 @@ public class DocumentServiceImpl implements RepositoryService {
         if (reference.version != null) builder.queryParam("version", reference.version);
     }
     
-    private static void addObjectName(UriComponentsBuilder builder, QualifiedName objectName) {
-        if (objectName != null && !objectName.isEmpty()) builder.path(objectName.join("/")).path("/");
-    }
-    
-    private static void addPartName(UriComponentsBuilder builder, Options.Option... options) {
-        Optional<QualifiedName> partName = Options.PART.getValue(options);
-        if (partName.isPresent()) builder.path("~/").path(partName.get().join("/")).path("/");
-    }
-    
-    private static void addPartName(UriComponentsBuilder builder, Optional<QualifiedName> partName) {
-        if (partName.isPresent()) builder.path("~/").path(partName.get().join("/")).path("/");
-    }
-    
-    private static void addQuery(UriComponentsBuilder builder, Query query) {
-        if (!query.isUnconstrained()) builder.queryParam("filter", query.urlEncode());
-    }
-    
     @Override
-    public void writeData(Reference reference, Optional<QualifiedName> partName, OutputStream out) throws InvalidReference, IOException {
+    public void writeData(Reference reference, RepositoryPath partName, OutputStream out) throws InvalidReference, IOException {
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
         addReference(builder, reference);
-        addPartName(builder, partName);
+        addObjectName(builder, partName);
         builder.path("file");
         try {
             writeData(builder.buildAndExpand(reference.id).toUri(), out);
@@ -352,10 +334,10 @@ public class DocumentServiceImpl implements RepositoryService {
     }
         
     @Override
-    public InputStream getData(Reference reference, Optional<QualifiedName> partName) throws IOException {
+    public InputStream getData(Reference reference, RepositoryPath partName) throws IOException {
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
         addReference(builder, reference);
-        addPartName(builder, partName);
+        addObjectName(builder, partName);
         builder.path("file");
         if (reference.version != null) builder = builder.queryParam("version", reference.version);  
         final URI uri = builder.buildAndExpand(reference.id).toUri();
@@ -363,11 +345,9 @@ public class DocumentServiceImpl implements RepositoryService {
     }
     
     @Override
-    public InputStream getData(String rootId, QualifiedName objectName, Options.Get... options) throws InvalidObjectName, IOException {
+    public InputStream getData(RepositoryPath objectName, Options.Get... options) throws InvalidObjectName, IOException {
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-        addRootId(builder, rootId);
         addObjectName(builder, objectName);
-        addPartName(builder, options);
         URI uri = builder.build().toUri();
         try {
             return InputStreamSupplier.of(out->writeData(uri, out)).get();        
@@ -378,11 +358,9 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public void writeData(String rootId, QualifiedName objectName, OutputStream out, Options.Get... options) throws InvalidObjectName, IOException {
+    public void writeData(RepositoryPath objectName, OutputStream out, Options.Get... options) throws InvalidObjectName, IOException {
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-        addRootId(builder, rootId);
         addObjectName(builder, objectName);
-        addPartName(builder, options);
         try {
             writeData(builder.build().toUri(), out);
         } catch (RemoteException re) {
@@ -486,36 +464,11 @@ public class DocumentServiceImpl implements RepositoryService {
         }    
     }
 
-
-    
     @Override
-    public DocumentLink getDocumentLink(String rootId, QualifiedName workspaceName, String docId, Options.Get... options) throws InvalidWorkspace, InvalidObjectName, InvalidDocumentId {
-        LOG.entry(rootId, workspaceName, docId, Options.loggable(options));
+    public DocumentLink createDocumentLink(RepositoryPath objectName, String mediaType, InputStreamSupplier iss, JsonObject metadata, Options.Create... options) throws InvalidWorkspace, InvalidObjectName, InvalidWorkspaceState {
+        LOG.entry(objectName, mediaType, iss, metadata, Options.loggable(options));
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
-            addObjectName(builder, workspaceName);
-            builder.path("~{docId}/");
-            builder.path("metadata");
-            addGetOptions(builder, options);
-            JsonObject result = getJson(builder.buildAndExpand(docId).toUri());
-            return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
-        } catch (HttpStatusCodeException e) {
-            RemoteException re = getDefaultError(e);
-            re.rethrowAsLocal(InvalidWorkspace.class);
-            re.rethrowAsLocal(InvalidObjectName.class);
-            re.rethrowAsLocal(InvalidDocumentId.class);
-            throw re;
-            
-        } 
-    }
-
-    @Override
-    public DocumentLink createDocumentLink(String rootId, QualifiedName objectName, String mediaType, InputStreamSupplier iss, JsonObject metadata, Options.Create... options) throws InvalidWorkspace, InvalidObjectName, InvalidWorkspaceState {
-        LOG.entry(rootId, objectName, mediaType, iss, metadata, Options.loggable(options));
-        try {
-            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
             addObjectName(builder, objectName);
             addCreateOptions(builder, options);
             JsonObject result = sendMultipart(builder.build().toUri(), HttpMethod.PUT, mediaType, iss, metadata);
@@ -532,11 +485,10 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public DocumentLink createDocumentLinkAndName(String rootId, QualifiedName workspaceName, String mediaType, InputStreamSupplier iss, JsonObject metadata, Options.Create... options) throws InvalidWorkspace, InvalidWorkspaceState {
-        LOG.entry(rootId, workspaceName, mediaType, iss, metadata, Options.loggable(options));
+    public DocumentLink createDocumentLinkAndName(RepositoryPath workspaceName, String mediaType, InputStreamSupplier iss, JsonObject metadata, Options.Create... options) throws InvalidWorkspace, InvalidWorkspaceState {
+        LOG.entry(workspaceName, mediaType, iss, metadata, Options.loggable(options));
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
             addObjectName(builder, workspaceName);
             addCreateOptions(builder, options);
             JsonObject result = sendMultipart(builder.build().toUri(), HttpMethod.POST, mediaType, iss, metadata);
@@ -552,14 +504,13 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public DocumentLink createDocumentLinkAndName(String rootId, QualifiedName workspaceName, Reference reference, Options.Create... options) throws InvalidWorkspace, InvalidWorkspaceState, InvalidReference {
-        LOG.entry(rootId, workspaceName, reference, Options.loggable(options));
+    public DocumentLink createDocumentLinkAndName(RepositoryPath workspaceName, Reference reference, Options.Create... options) throws InvalidWorkspace, InvalidWorkspaceState, InvalidReference {
+        LOG.entry(workspaceName, reference, Options.loggable(options));
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
             addObjectName(builder, workspaceName);
             addCreateOptions(builder, options);
-            DocumentLink link = new DocumentLinkImpl(workspaceName, reference, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
+            DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, workspaceName, reference, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.POST, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
@@ -574,14 +525,13 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public DocumentLink createDocumentLink(String rootId, QualifiedName objectName, Reference reference, Options.Create... options) throws InvalidWorkspace, InvalidReference, InvalidObjectName, InvalidWorkspaceState {
-        LOG.entry(rootId, objectName, reference, Options.loggable(options));
+    public DocumentLink createDocumentLink(RepositoryPath objectName, Reference reference, Options.Create... options) throws InvalidWorkspace, InvalidReference, InvalidObjectName, InvalidWorkspaceState {
+        LOG.entry(objectName, reference, Options.loggable(options));
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
             addObjectName(builder, objectName);
             addCreateOptions(builder, options);
-            DocumentLink link = new DocumentLinkImpl(objectName, reference, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
+            DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, reference, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
@@ -597,17 +547,17 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public DocumentLink updateDocumentLink(String rootId, QualifiedName objectName, String mediaType, InputStreamSupplier iss, JsonObject metadata, Options.Update... options) throws InvalidWorkspace, InvalidObjectName, InvalidWorkspaceState {
-        LOG.entry(rootId, objectName, mediaType, iss, metadata, Options.loggable(options));
+    public DocumentLink updateDocumentLink(RepositoryPath objectName, String mediaType, InputStreamSupplier iss, JsonObject metadata, Options.Update... options) throws InvalidWorkspace, InvalidObjectName, InvalidWorkspaceState {
+        LOG.entry(objectName, mediaType, iss, metadata, Options.loggable(options));
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
+            
             addObjectName(builder, objectName);
             addUpdateOptions(builder, options);
             
             JsonObject result;
             if (iss == null || mediaType == null) {
-                DocumentLink link = new DocumentLinkImpl(objectName, Constants.NO_REFERENCE, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, metadata, false, LocalData.NONE);
+                DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, Constants.NO_REFERENCE, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, metadata, false, LocalData.NONE);
                 result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
             } else {
                 result = sendMultipart(builder.build().toUri(), HttpMethod.PUT, mediaType, iss, metadata);
@@ -626,13 +576,13 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public DocumentLink updateDocumentLink(String rootId, QualifiedName objectName, Reference reference, Options.Update... options) throws InvalidWorkspace, InvalidObjectName, InvalidWorkspaceState, InvalidReference {
+    public DocumentLink updateDocumentLink(RepositoryPath objectName, Reference reference, Options.Update... options) throws InvalidWorkspace, InvalidObjectName, InvalidWorkspaceState, InvalidReference {
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
+            
             addObjectName(builder, objectName);
             addUpdateOptions(builder, options);
-            DocumentLink link = new DocumentLinkImpl(objectName, reference, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
+            DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, reference, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
@@ -648,19 +598,18 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public NamedRepositoryObject copyObject(String rootId, QualifiedName objectName, String targetRootId, QualifiedName targetName, boolean createParent) throws InvalidWorkspaceState, InvalidWorkspace, InvalidObjectName {
+    public NamedRepositoryObject copyObject(RepositoryPath objectName, RepositoryPath targetName, boolean createParent) throws InvalidWorkspaceState, InvalidWorkspace, InvalidObjectName {
         throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
     }
 
     @Override
-    public DocumentLink copyDocumentLink(String rootId, QualifiedName objectName, String targetRootId, QualifiedName targetName, boolean createParent) throws InvalidWorkspaceState, InvalidWorkspace, InvalidObjectName {
-        LOG.entry(rootId, objectName, targetRootId, targetName, createParent);
+    public DocumentLink copyDocumentLink(RepositoryPath objectName, RepositoryPath targetName, boolean createParent) throws InvalidWorkspaceState, InvalidWorkspace, InvalidObjectName {
+        LOG.entry(objectName, targetName, createParent);
         try {
-            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);        
             addObjectName(builder, objectName);
             addCopyOptions(builder, Options.Create.EMPTY.addOptionIf(Options.CREATE_MISSING_PARENT, createParent).build());
-            DocumentLink link = new DocumentLinkImpl(objectName, Constants.NO_REFERENCE, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
+            DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, Constants.NO_REFERENCE, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
@@ -673,14 +622,13 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public Workspace copyWorkspace(String rootId, QualifiedName objectName, String targetRootId, QualifiedName targetName, boolean createParent) throws InvalidWorkspaceState, InvalidWorkspace, InvalidObjectName {
-        LOG.entry(rootId, objectName, targetRootId, targetName, createParent);
+    public Workspace copyWorkspace(RepositoryPath objectName, RepositoryPath targetName, boolean createParent) throws InvalidWorkspaceState, InvalidWorkspace, InvalidObjectName {
+        LOG.entry(objectName, targetName, createParent);
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, targetRootId);
             addObjectName(builder, targetName);
             addCopyOptions(builder, Options.Create.EMPTY.addOptionIf(Options.CREATE_MISSING_PARENT, createParent).build());
-            Workspace workspace = new WorkspaceImpl(objectName, Constants.NO_ID, Constants.NO_STATE, Constants.NO_METADATA, false, LocalData.NONE);
+            Workspace workspace = new WorkspaceImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, Constants.NO_STATE, Constants.NO_METADATA, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, workspace.toJson());
             return LOG.exit((Workspace)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
@@ -693,14 +641,14 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public Workspace createWorkspaceByName(String rootId, QualifiedName objectName, Workspace.State state, JsonObject metadata, Options.Create... options) throws InvalidWorkspaceState, InvalidWorkspace {
-        LOG.entry(rootId, objectName, state, metadata, Options.loggable(options));
+    public Workspace createWorkspaceByName(RepositoryPath objectName, Workspace.State state, JsonObject metadata, Options.Create... options) throws InvalidWorkspaceState, InvalidWorkspace {
+        LOG.entry(objectName, state, metadata, Options.loggable(options));
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
+            
             addObjectName(builder, objectName);
             addCreateOptions(builder, options);
-            Workspace workspace = new WorkspaceImpl(objectName, Constants.NO_ID, state, metadata, false, LocalData.NONE);
+            Workspace workspace = new WorkspaceImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, state, metadata, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, workspace.toJson());
             return LOG.exit((Workspace)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
@@ -714,14 +662,13 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public Workspace createWorkspaceAndName(String rootId, QualifiedName workspaceName, Workspace.State state, JsonObject metadata, Options.Create... options) throws InvalidWorkspaceState, InvalidWorkspace {
-        LOG.entry(rootId, workspaceName, state, metadata, Options.loggable(options));
+    public Workspace createWorkspaceAndName(RepositoryPath workspaceName, Workspace.State state, JsonObject metadata, Options.Create... options) throws InvalidWorkspaceState, InvalidWorkspace {
+        LOG.entry(workspaceName, state, metadata, Options.loggable(options));
         try {
-            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);            
             addObjectName(builder, workspaceName);
             addCreateOptions(builder, options);
-            Workspace workspace = new WorkspaceImpl(workspaceName, Constants.NO_ID, state, metadata, false, LocalData.NONE);
+            Workspace workspace = new WorkspaceImpl(Constants.NO_ID, Constants.NO_VERSION, workspaceName, state, metadata, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.POST, workspace.toJson());
             return LOG.exit((Workspace)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
@@ -735,14 +682,14 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public Workspace updateWorkspaceByName(String rootId, QualifiedName objectName, Workspace.State state, JsonObject metadata, Options.Update... options) throws InvalidWorkspace {
-        LOG.entry(rootId, objectName, state, metadata, Options.loggable(options));
+    public Workspace updateWorkspaceByName(RepositoryPath objectName, Workspace.State state, JsonObject metadata, Options.Update... options) throws InvalidWorkspace {
+        LOG.entry(objectName, state, metadata, Options.loggable(options));
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
+            
             addObjectName(builder, objectName);
             addUpdateOptions(builder, options);
-            Workspace workspace = new WorkspaceImpl(objectName, Constants.NO_ID, state, metadata, false, LocalData.NONE);
+            Workspace workspace = new WorkspaceImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, state, metadata, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, workspace.toJson());
             return LOG.exit((Workspace)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
@@ -755,12 +702,12 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public void deleteDocument(String rootId, QualifiedName workspaceName, String documentId) throws InvalidWorkspace, InvalidDocumentId, InvalidWorkspaceState {
-        LOG.entry(rootId, workspaceName, documentId);
+    public void deleteDocument(RepositoryPath workspaceName, String documentId) throws InvalidWorkspace, InvalidDocumentId, InvalidWorkspaceState {
+        LOG.entry(workspaceName, documentId);
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-        addRootId(builder, rootId);
-        addObjectName(builder, workspaceName);
-        addDocumentId(builder, documentId);
+        
+        addObjectName(builder, workspaceName.addDocumentId(documentId, null));
+
         try {
             delete(builder.build().toUri());
         } catch (HttpStatusCodeException e) {
@@ -774,10 +721,10 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public void deleteObjectByName(String rootId, QualifiedName objectName) throws InvalidWorkspace, InvalidObjectName, InvalidWorkspaceState {
-        LOG.entry(rootId, objectName);
+    public void deleteObjectByName(RepositoryPath objectName) throws InvalidWorkspace, InvalidObjectName, InvalidWorkspaceState {
+        LOG.entry(objectName);
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-        addRootId(builder, rootId);
+        
         addObjectName(builder, objectName);
         try {
             delete(builder.build().toUri());
@@ -794,12 +741,12 @@ public class DocumentServiceImpl implements RepositoryService {
 
 
     @Override
-    public DocumentPart getPart(Reference reference, QualifiedName partName) throws InvalidReference, InvalidObjectName {
+    public RepositoryObject getPart(Reference reference, RepositoryPath partName) throws InvalidReference, InvalidObjectName {
         LOG.entry();
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
             addReference(builder, reference);
-            addPartName(builder, Optional.of(partName));
+            addObjectName(builder, partName);
             JsonObject result = getJson(builder.build().toUri());
             return LOG.exit((DocumentPart)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
@@ -811,12 +758,12 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public Stream<DocumentPart> catalogueParts(Reference reference, QualifiedName partName) throws InvalidReference, InvalidObjectName {
+    public Stream<DocumentPart> catalogueParts(Reference reference, RepositoryPath partName) throws InvalidReference, InvalidObjectName {
         LOG.entry();
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
             addReference(builder, reference);
-            addPartName(builder, Optional.of(partName));
+            addObjectName(builder, partName);
             URI uri = builder.build().toUri();
             InputStreamSupplier result = InputStreamSupplier.of(out->writeData(uri, out)); 
             return LOG.exit(factory.build(result.get()).map(DocumentPart.class::cast));
@@ -831,11 +778,11 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public DocumentLink getDocumentLink(String rootId, QualifiedName objectName, Options.Get... options) throws InvalidWorkspace, InvalidObjectName {
+    public DocumentLink getDocumentLink(RepositoryPath objectName, Options.Get... options) throws InvalidWorkspace, InvalidObjectName {
         LOG.entry();
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
+            
             addObjectName(builder, objectName);
             addGetOptions(builder, options);
             JsonObject result = getJson(builder.build().toUri());
@@ -867,20 +814,23 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public Stream<NamedRepositoryObject> catalogueByName(String rootId, QualifiedName objectName, Query query, Options.Search... options) throws InvalidWorkspace {
+    public Stream<NamedRepositoryObject> catalogueByName(RepositoryPath objectName, Query query, Options.Search... options) throws InvalidWorkspace {
         LOG.entry();
         
         //If there are no wildcards already, we need to add a "*" to the end of the name.
-        if (!Options.NO_IMPLICIT_WILDCARD.isIn(options) && !Options.PART.getValue(options).isPresent()) {
-            Predicate<String> hasWildcards = element -> !Parsers.parseUnixWildcard(element).isSimple();
-            if (objectName.isEmpty() || objectName.indexFromEnd(hasWildcards) < 0) {
-                objectName = objectName.add("*");
+        if (!Options.NO_IMPLICIT_WILDCARD.isIn(options)) {
+            if (!objectName.find(RepositoryPath::isWildcard).isPresent()) {
+                if (objectName.find(RepositoryPath::isPartRoot).isPresent()) {
+                    objectName.addPartPath("*");
+                } else {
+                    objectName.addDocumentPath("*");
+                }
             }
         }
         
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
+            
             addObjectName(builder, objectName);
             addQuery(builder, query);
             addSearchOptions(builder, options);
@@ -895,28 +845,6 @@ public class DocumentServiceImpl implements RepositoryService {
         }
     }
 
-    @Override
-    public Stream<NamedRepositoryObject> catalogueById(String rootId, QualifiedName workspaceName, String objectId, Query query, Options.Search... options) throws InvalidWorkspace {
-        LOG.entry();
-        
-        try {
-            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
-            addObjectName(builder, workspaceName);
-            addDocumentId(builder, objectId);
-            addQuery(builder, query);
-            addSearchOptions(builder, options);
-            URI uri = builder.build().toUri();
-            InputStreamSupplier result = InputStreamSupplier.of(out->writeData(uri, out)); 
-            return LOG.exit(factory.build(result.get()).map(NamedRepositoryObject.class::cast));
-        } catch (HttpStatusCodeException e) {
-            RemoteException re = getDefaultError(e);
-            throw re; 
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }    
-    
     @Override
     public Stream<Document> catalogueHistory(Reference reference, Query query) throws InvalidReference {
         LOG.entry();
@@ -936,13 +864,12 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public NamedRepositoryObject getObjectByName(String rootId, QualifiedName objectName, Options.Get... options) throws InvalidWorkspace, InvalidObjectName {
-        LOG.entry();
+    public NamedRepositoryObject getObjectByName(RepositoryPath objectName, Options.Get... options) throws InvalidWorkspace, InvalidObjectName {
+        LOG.entry(objectName, Options.loggable(options));
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
+            
             addObjectName(builder, objectName);
-            addPartName(builder, options);
             addGetOptions(builder, options);
             JsonObject result = getJson(builder.build().toUri());
             return LOG.exit((NamedRepositoryObject)factory.build(result, Optional.empty()));
@@ -955,11 +882,11 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public Workspace getWorkspaceByName(String rootId, QualifiedName objectName) throws InvalidWorkspace, InvalidObjectName {
-        LOG.entry();
+    public Workspace getWorkspaceByName(RepositoryPath objectName) throws InvalidWorkspace, InvalidObjectName {
+        LOG.entry(objectName);
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            addRootId(builder, rootId);
+            
             addObjectName(builder, objectName);
             //addPartName(builder, options);
             //addOptions(builder, options);
@@ -974,31 +901,25 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-	public Stream<DocumentLink> listWorkspaces(String documentId, QualifiedName pathFilter, Query query, Options.Search... options) throws InvalidDocumentId {
-        LOG.entry();
+    public <T> Optional<T> getImplementation(Class<T> type) {
+        return (type.isAssignableFrom(this.getClass())) ? Optional.of((T)this) : Optional.empty();
+    }
+    
+    @Override
+    public VersionedRepositoryObject publish(RepositoryPath objectName, String version) throws InvalidObjectName, InvalidVersionName {
+        LOG.entry(objectName, version);    
         try {
-            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
-            if (pathFilter != null && !pathFilter.isEmpty()) {
-                addObjectName(builder, pathFilter);
-                addDocumentId(builder, documentId);
-            } else {
-                builder.queryParam("id", documentId);
-            }
-            addQuery(builder, query);
-            addSearchOptions(builder, options);
-            URI uri = builder.build().toUri();
-            InputStreamSupplier result = InputStreamSupplier.of(out->writeData(uri, out)); 
-            return LOG.exit(factory.build(result.get()).map(DocumentLink.class::cast));
-        } catch (RemoteException re) {
-            re.rethrowAsLocal(InvalidDocumentId.class);
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);            
+            addObjectName(builder, objectName.setVersion(version));
+            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, Constants.EMPTY_METADATA);
+            return LOG.exit((VersionedRepositoryObject)factory.build(result, Optional.empty()));
+        } catch (HttpStatusCodeException e) {
+            RemoteException re = getDefaultError(e);
+            re.rethrowAsLocal(InvalidVersionName.class);
+            re.rethrowAsLocal(InvalidObjectName.class);
             throw re; 
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    @Override
-    public <T> Optional<T> getImplementation(Class<T> type) {
-        return (type.isAssignableFrom(this.getClass())) ? Optional.of((T)this) : Optional.empty();
     }
 }
