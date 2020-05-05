@@ -815,16 +815,12 @@ public class DocumentServiceImpl implements RepositoryService {
 
     @Override
     public Stream<NamedRepositoryObject> catalogueByName(RepositoryPath objectName, Query query, Options.Search... options) throws InvalidWorkspace {
-        LOG.entry();
+        LOG.entry(objectName, query, Options.loggable(options));
         
         //If there are no wildcards already, we need to add a "*" to the end of the name.
         if (!Options.NO_IMPLICIT_WILDCARD.isIn(options)) {
             if (!objectName.find(RepositoryPath::isWildcard).isPresent()) {
-                if (objectName.find(RepositoryPath::isPartRoot).isPresent()) {
-                    objectName.addPartPath("*");
-                } else {
-                    objectName.addDocumentPath("*");
-                }
+                objectName = objectName.add("*");
             }
         }
         
@@ -839,9 +835,9 @@ public class DocumentServiceImpl implements RepositoryService {
             return LOG.exit(factory.build(result.get()).map(NamedRepositoryObject.class::cast));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
-            throw re; 
+            throw LOG.throwing(re); 
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw LOG.throwing(new RuntimeException(e));
         }
     }
 
