@@ -21,6 +21,7 @@ import com.softwareplumbers.dms.NamedRepositoryObject;
 import com.softwareplumbers.dms.Options;
 import com.softwareplumbers.dms.Reference;
 import com.softwareplumbers.dms.RepositoryObject;
+import com.softwareplumbers.dms.RepositoryPath.ElementType;
 import com.softwareplumbers.dms.VersionedRepositoryObject;
 import com.softwareplumbers.dms.Workspace;
 import com.softwareplumbers.dms.common.impl.LocalData;
@@ -817,9 +818,9 @@ public class DocumentServiceImpl implements RepositoryService {
     public Stream<NamedRepositoryObject> catalogueByName(RepositoryPath objectName, Query query, Options.Search... options) throws InvalidWorkspace {
         LOG.entry(objectName, query, Options.loggable(options));
         
-        //If there are no wildcards already, we need to add a "*" to the end of the name.
+        //If there are no wildcards already, we need to add a "*" to the end of the name - unless the last element in the name is a document id.
         if (!Options.NO_IMPLICIT_WILDCARD.isIn(options)) {
-            if (!objectName.find(RepositoryPath::isWildcard).isPresent()) {
+            if (objectName.isEmpty() || objectName.part.type != ElementType.DOCUMENT_ID && !objectName.find(RepositoryPath::isWildcard).isPresent()) {
                 objectName = objectName.add("*");
             }
         }
