@@ -707,7 +707,7 @@ public class DocumentServiceImpl implements RepositoryService {
         LOG.entry(workspaceName, documentId);
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
         
-        addObjectName(builder, workspaceName.addDocumentId(documentId, null));
+        addObjectName(builder, workspaceName.addDocumentId(documentId));
 
         try {
             delete(builder.build().toUri());
