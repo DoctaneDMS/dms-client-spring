@@ -288,6 +288,10 @@ public class DocumentServiceImpl implements RepositoryService {
         if (!Options.CREATE_MISSING_ITEM.isIn(options)) builder.queryParam("updateType", "UPDATE");
         if (Options.CREATE_MISSING_PARENT.isIn(options)) builder.queryParam("createWorkspace", "true");
     }
+    
+    private static void addPublishOption(UriComponentsBuilder builder) {
+        builder.queryParam("updateType", "PUBLISH");
+    }
 
     private static void addCreateOptions(UriComponentsBuilder builder, Options.Create... options) {        
         if (!Options.RETURN_EXISTING_LINK_TO_SAME_DOCUMENT.isIn(options)) builder.queryParam("returnExisting", "false");
@@ -905,13 +909,35 @@ public class DocumentServiceImpl implements RepositoryService {
     }
     
     @Override
-    public VersionedRepositoryObject publish(RepositoryPath objectName, String version) throws InvalidObjectName, InvalidVersionName {
+    public Workspace publishWorkspace(RepositoryPath objectName, String version, JsonObject metadata) throws InvalidWorkspace, InvalidVersionName {
         LOG.entry(objectName, version);    
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);            
             addObjectName(builder, objectName.setVersion(version));
-            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, Constants.EMPTY_METADATA);
-            return LOG.exit((VersionedRepositoryObject)factory.build(result, Optional.empty()));
+            addPublishOption(builder);
+            Workspace workspace = new WorkspaceImpl(Constants.NO_ID, version, objectName.setVersion(version), Constants.NO_STATE, metadata, false, LocalData.NONE);
+            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, workspace.toJson());
+            return LOG.exit((Workspace)factory.build(result, Optional.empty()));
+        } catch (HttpStatusCodeException e) {
+            RemoteException re = getDefaultError(e);
+            re.rethrowAsLocal(InvalidVersionName.class);
+            re.rethrowAsLocal(InvalidWorkspace.class);
+            throw re; 
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+    
+    @Override
+    public DocumentLink publishDocumentLink(RepositoryPath objectName, String version, JsonObject metadata) throws InvalidObjectName, InvalidVersionName {
+        LOG.entry(objectName, version);    
+        try {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);            
+            addObjectName(builder, objectName.setVersion(version));
+            addPublishOption(builder);
+            DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, version, objectName.setVersion(version), Constants.NO_REFERENCE, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, metadata, false, LocalData.NONE);
+            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
+            return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
             re.rethrowAsLocal(InvalidVersionName.class);
@@ -920,5 +946,5 @@ public class DocumentServiceImpl implements RepositoryService {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-    }
+    }    
 }
