@@ -716,6 +716,8 @@ public class DocumentServiceImpl implements RepositoryService {
             re.rethrowAsLocal(InvalidWorkspace.class);
             re.rethrowAsLocal(InvalidDocumentId.class);
             re.rethrowAsLocal(InvalidWorkspaceState.class);
+            if (re.getCause() instanceof InvalidObjectName)
+                throw new InvalidDocumentId(documentId);
             throw re; 
         }
         LOG.exit();
