@@ -305,14 +305,14 @@ public class DocumentServiceImpl implements RepositoryService {
 
     private static void addSearchOptions(UriComponentsBuilder builder, Options.Search... options) {        
         if (Options.SEARCH_OLD_VERSIONS.isIn(options)) builder.queryParam("searchHistory", "true");
-        if (Options.FREE_SEARCH.isIn(options)) builder.queryParam("FREE_SEARCH", "true");
+        if (Options.RETURN_ALL_VERSIONS.isIn(options)) builder.queryParam("RETURN_ALL_VERSIONS", "true");
     }
     
     private static void addGetOptions(UriComponentsBuilder builder, Options.Get... options) {        
     }
     
     private static void addObjectName(UriComponentsBuilder builder, RepositoryPath objectName) {
-        if (objectName != null && !objectName.isEmpty()) builder.path(objectName.join("/")).path("/");
+        if (objectName != null && !objectName.isEmpty()) builder.path(objectName.toString()).path("/");
     }
 
     private static void addQuery(UriComponentsBuilder builder, Query query) {
@@ -515,7 +515,7 @@ public class DocumentServiceImpl implements RepositoryService {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
             addObjectName(builder, workspaceName);
             addCreateOptions(builder, options);
-            DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, workspaceName, reference, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
+            DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, workspaceName, reference, Constants.NO_UPDATE_TIME, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.POST, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
@@ -536,7 +536,7 @@ public class DocumentServiceImpl implements RepositoryService {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
             addObjectName(builder, objectName);
             addCreateOptions(builder, options);
-            DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, reference, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
+            DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, reference, Constants.NO_UPDATE_TIME, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
@@ -562,7 +562,7 @@ public class DocumentServiceImpl implements RepositoryService {
             
             JsonObject result;
             if (iss == null || mediaType == null) {
-                DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, Constants.NO_REFERENCE, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, metadata, false, LocalData.NONE);
+                DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, Constants.NO_REFERENCE, Constants.NO_UPDATE_TIME, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, metadata, false, LocalData.NONE);
                 result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
             } else {
                 result = sendMultipart(builder.build().toUri(), HttpMethod.PUT, mediaType, iss, metadata);
@@ -587,7 +587,7 @@ public class DocumentServiceImpl implements RepositoryService {
             
             addObjectName(builder, objectName);
             addUpdateOptions(builder, options);
-            DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, reference, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
+            DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, reference, Constants.NO_UPDATE_TIME, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
@@ -614,7 +614,7 @@ public class DocumentServiceImpl implements RepositoryService {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);        
             addObjectName(builder, objectName);
             addCopyOptions(builder, Options.Create.EMPTY.addOptionIf(Options.CREATE_MISSING_PARENT, createParent).build());
-            DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, Constants.NO_REFERENCE, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
+            DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, Constants.NO_REFERENCE, Constants.NO_UPDATE_TIME, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
@@ -711,7 +711,7 @@ public class DocumentServiceImpl implements RepositoryService {
         LOG.entry(workspaceName, documentId);
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
         
-        addObjectName(builder, workspaceName.addDocumentId(documentId));
+        addObjectName(builder, workspaceName.addId(documentId));
 
         try {
             delete(builder.build().toUri());
@@ -824,12 +824,7 @@ public class DocumentServiceImpl implements RepositoryService {
     public Stream<NamedRepositoryObject> catalogueByName(RepositoryPath objectName, Query query, Options.Search... options) throws InvalidWorkspace {
         LOG.entry(objectName, query, Options.loggable(options));
         
-        //If there are no wildcards already, we need to add a "*" to the end of the name - unless the last element in the name is a document id.
-        if (!Options.NO_IMPLICIT_WILDCARD.isIn(options)) {
-            if (objectName.isEmpty() || objectName.part.type != ElementType.DOCUMENT_ID && !objectName.find(RepositoryPath::isWildcard).isPresent()) {
-                objectName = objectName.add("*");
-            }
-        }
+        objectName = objectName.normalizeSearchPath(options);
         
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
@@ -935,7 +930,7 @@ public class DocumentServiceImpl implements RepositoryService {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);            
             addObjectName(builder, objectName.setVersion(version));
             addPublishOption(builder);
-            DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, version, objectName.setVersion(version), Constants.NO_REFERENCE, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, metadata, false, LocalData.NONE);
+            DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, version, objectName.setVersion(version), Constants.NO_REFERENCE, Constants.NO_UPDATE_TIME, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, metadata, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
