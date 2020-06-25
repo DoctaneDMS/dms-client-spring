@@ -303,6 +303,11 @@ public class DocumentServiceImpl implements RepositoryService {
         builder.queryParam("updateType", "COPY");
     }
 
+    private static void addRenameOptions(UriComponentsBuilder builder, Options.Create... options) {        
+        if (Options.CREATE_MISSING_PARENT.isIn(options)) builder.queryParam("createWorkspace", "true");
+        builder.queryParam("updateType", "RENAME");
+    }
+    
     private static void addSearchOptions(UriComponentsBuilder builder, Options.Search... options) {        
         if (Options.SEARCH_OLD_VERSIONS.isIn(options)) builder.queryParam("searchHistory", "true");
         if (Options.RETURN_ALL_VERSIONS.isIn(options)) builder.queryParam("RETURN_ALL_VERSIONS", "true");
@@ -949,7 +954,7 @@ public class DocumentServiceImpl implements RepositoryService {
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);            
             addObjectName(builder, path);
-            addCreateOptions(builder, options);
+            addRenameOptions(builder, options);
             DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, target, false, Constants.NO_REFERENCE, Constants.NO_UPDATE_TIME, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
@@ -970,7 +975,7 @@ public class DocumentServiceImpl implements RepositoryService {
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);            
             addObjectName(builder, path);
-            addCreateOptions(builder, options);
+            addRenameOptions(builder, options);
             Workspace workspace = new WorkspaceImpl(Constants.NO_ID, Constants.NO_VERSION, target, false, Constants.NO_STATE, Constants.NO_METADATA, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, workspace.toJson());
             return LOG.exit((Workspace)factory.build(result, Optional.empty()));
