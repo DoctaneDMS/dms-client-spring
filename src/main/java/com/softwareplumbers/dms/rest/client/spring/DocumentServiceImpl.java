@@ -296,6 +296,7 @@ public class DocumentServiceImpl implements RepositoryService {
     private static void addCreateOptions(UriComponentsBuilder builder, Options.Create... options) {        
         if (!Options.RETURN_EXISTING_LINK_TO_SAME_DOCUMENT.isIn(options)) builder.queryParam("returnExisting", "false");
         if (Options.CREATE_MISSING_PARENT.isIn(options)) builder.queryParam("createWorkspace", "true");
+        builder.queryParam("updateType", "CREATE");
     }
     
     private static void addCopyOptions(UriComponentsBuilder builder, Options.Create... options) {        
