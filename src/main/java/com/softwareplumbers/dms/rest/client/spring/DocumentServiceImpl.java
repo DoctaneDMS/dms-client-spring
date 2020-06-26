@@ -312,6 +312,7 @@ public class DocumentServiceImpl implements RepositoryService {
     private static void addSearchOptions(UriComponentsBuilder builder, Options.Search... options) {        
         if (Options.SEARCH_OLD_VERSIONS.isIn(options)) builder.queryParam("searchHistory", "true");
         if (Options.RETURN_ALL_VERSIONS.isIn(options)) builder.queryParam("RETURN_ALL_VERSIONS", "true");
+        if (Options.INCLUDE_DELETED.isIn(options)) builder.queryParam("INCLUDE_DELETED", "true");
     }
     
     private static void addGetOptions(UriComponentsBuilder builder, Options.Get... options) {        
