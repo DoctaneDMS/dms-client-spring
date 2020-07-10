@@ -619,7 +619,7 @@ public class DocumentServiceImpl implements RepositoryService {
         LOG.entry(objectName, targetName, createParent);
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);        
-            addObjectName(builder, objectName);
+            addObjectName(builder, targetName);
             addCopyOptions(builder, Options.Create.EMPTY.addOptionIf(Options.CREATE_MISSING_PARENT, createParent).build());
             DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, false, Constants.NO_REFERENCE, Constants.NO_UPDATE_TIME, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
