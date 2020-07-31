@@ -48,6 +48,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.util.LinkedMultiValueMap;
@@ -286,6 +287,27 @@ public class DocumentServiceImpl implements RepositoryService {
             throw new BaseRuntimeException(e);
         }
         LOG.exit();
+    }
+    
+    protected void writeJson(URI uri, OutputStream out) {
+        LOG.entry(uri, out);
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            HttpHeaders headers = new HttpHeaders();
+            loginHandler.applyCredentials(headers); 
+            headers.add(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE);
+            restTemplate.execute(
+                    uri, 
+                    HttpMethod.GET, 
+                    request -> request.getHeaders().putAll(headers), 
+                    response -> { writeBytes(response, out); return null; }
+            );
+        } catch (HttpStatusCodeException e) {
+            throw getDefaultError(e);
+        } catch (ServerError e) {
+            throw new BaseRuntimeException(e);
+        }
+        LOG.exit();        
     }
     
     private static void addUpdateOptions(UriComponentsBuilder builder, Options.Update... options) {        
@@ -881,7 +903,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addQuery(builder, query);
             addSearchOptions(builder, options);
             URI uri = builder.build().toUri();
-            InputStreamSupplier result = InputStreamSupplier.of(out->writeData(uri, out)); 
+            InputStreamSupplier result = InputStreamSupplier.of(out->writeJson(uri, out)); 
             return LOG.exit(factory.build(result.get()).map(NamedRepositoryObject.class::cast));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
