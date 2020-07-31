@@ -144,7 +144,7 @@ public class DocumentServiceImpl implements RepositoryService {
      * @return Parsed JSON object send by server as response.
      * @throws IOException 
      */
-    protected JsonObject sendMultipart(URI uri, HttpMethod method, String mt, InputStreamSupplier iss, JsonObject jo) throws IOException {
+    protected JsonObject sendMultipart(URI uri, HttpMethod method, String mt, InputStreamSupplier iss, JsonObject jo) throws IOException, Exceptions.ServerError {
         LOG.entry(uri, method, mt,iss, jo);
         if (jo == null) jo = Constants.EMPTY_METADATA;
         LinkedMultiValueMap<String, Object> multipartMap = new LinkedMultiValueMap<>();
@@ -179,7 +179,7 @@ public class DocumentServiceImpl implements RepositoryService {
      * @return Parsed JSON object send by server as response.
      * @throws IOException 
      */
-    protected JsonObject sendJson(URI uri, HttpMethod method, JsonObject jo) throws IOException {
+    protected JsonObject sendJson(URI uri, HttpMethod method, JsonObject jo) throws IOException, Exceptions.ServerError {
         LOG.entry(uri, method, jo);
         HttpHeaders headers = new HttpHeaders();
         headers.set("Content-Type", org.springframework.http.MediaType.APPLICATION_JSON_VALUE);
@@ -201,7 +201,7 @@ public class DocumentServiceImpl implements RepositoryService {
      * @param uri URI from which we will request JSON data
      * @return Parsed JSON object send by server as response.
      */
-    protected JsonObject getJson(URI uri) {
+    protected JsonObject getJson(URI uri) throws Exceptions.ServerError {
         LOG.entry(uri);
         HttpHeaders headers = new HttpHeaders();
         headers.setAccept(Collections.singletonList(org.springframework.http.MediaType.APPLICATION_JSON));
@@ -226,7 +226,7 @@ public class DocumentServiceImpl implements RepositoryService {
      * 
      * @param uri URI on which we will invoke DELETE.
      */
-    protected void delete(URI uri) {
+    protected void delete(URI uri) throws Exceptions.ServerError {
         LOG.entry(uri);
         HttpHeaders headers = new HttpHeaders();
         headers.setAccept(Collections.singletonList(org.springframework.http.MediaType.APPLICATION_JSON));
@@ -270,16 +270,20 @@ public class DocumentServiceImpl implements RepositoryService {
      */
     protected void writeData(URI uri, OutputStream out) throws IOException {
         LOG.entry(uri, out);
-        RestTemplate restTemplate = new RestTemplate();
         try {
+            RestTemplate restTemplate = new RestTemplate();
+            HttpHeaders credentialHeaders = new HttpHeaders();
+            loginHandler.applyCredentials(credentialHeaders);
             restTemplate.execute(
                     uri, 
                     HttpMethod.GET, 
-                    request -> loginHandler.applyCredentials(request.getHeaders()), 
+                    request -> request.getHeaders().putAll(credentialHeaders), 
                     response -> { writeBytes(response, out); return null; }
             );
         } catch (HttpStatusCodeException e) {
             throw getDefaultError(e);
+        } catch (ServerError e) {
+            throw new BaseRuntimeException(e);
         }
         LOG.exit();
     }
@@ -429,7 +433,9 @@ public class DocumentServiceImpl implements RepositoryService {
             return LOG.exit(Reference.fromJson(result));
         } catch (IOException e) {
             throw LOG.throwing(new RuntimeException(e));
-        } catch (HttpStatusCodeException e) {
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
+        }catch (HttpStatusCodeException e) {
             switch (e.getStatusCode()) {
                 case NOT_FOUND: throw new InvalidDocumentId(id);
                 default:
@@ -449,6 +455,8 @@ public class DocumentServiceImpl implements RepositoryService {
             return LOG.exit(ref);
         } catch (IOException e) {
             throw LOG.throwing(new RuntimeException(e));
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         } catch (HttpStatusCodeException e) {
             switch (e.getStatusCode()) {
                 default:
@@ -466,7 +474,9 @@ public class DocumentServiceImpl implements RepositoryService {
             if (ref.version != null) builder.queryParam("version", ref.version);
             JsonObject result = getJson(builder.buildAndExpand(ref.id).toUri());
             return LOG.exit((Document)factory.build(result, Optional.empty()));
-        } catch (HttpStatusCodeException e) {
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
+        }catch (HttpStatusCodeException e) {
             switch (e.getStatusCode()) {
                 case NOT_FOUND:
                     throw new InvalidReference(ref);
@@ -485,6 +495,8 @@ public class DocumentServiceImpl implements RepositoryService {
             addCreateOptions(builder, options);
             JsonObject result = sendMultipart(builder.build().toUri(), HttpMethod.PUT, mediaType, iss, metadata);
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
             re.rethrowAsLocal(InvalidWorkspace.class);
@@ -505,6 +517,8 @@ public class DocumentServiceImpl implements RepositoryService {
             addCreateOptions(builder, options);
             JsonObject result = sendMultipart(builder.build().toUri(), HttpMethod.POST, mediaType, iss, metadata);
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
             re.rethrowAsLocal(InvalidWorkspace.class);
@@ -525,6 +539,8 @@ public class DocumentServiceImpl implements RepositoryService {
             DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, workspaceName, false, reference, Constants.NO_UPDATE_TIME, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.POST, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
             re.rethrowAsLocal(InvalidWorkspace.class);
@@ -546,6 +562,8 @@ public class DocumentServiceImpl implements RepositoryService {
             DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, false, reference, Constants.NO_UPDATE_TIME, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
             JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
             re.rethrowAsLocal(InvalidWorkspace.class);
@@ -584,6 +602,8 @@ public class DocumentServiceImpl implements RepositoryService {
             throw re; 
         } catch (IOException e) {
             throw new RuntimeException(e);
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         }
     }
 
@@ -606,6 +626,8 @@ public class DocumentServiceImpl implements RepositoryService {
             throw re; 
         } catch (IOException e) {
             throw new RuntimeException(e);
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         }
     }
 
@@ -630,6 +652,8 @@ public class DocumentServiceImpl implements RepositoryService {
             throw re; 
         } catch (IOException e) {
             throw new RuntimeException(e);
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         }
     }
 
@@ -649,6 +673,8 @@ public class DocumentServiceImpl implements RepositoryService {
             throw re; 
         } catch (IOException e) {
             throw new RuntimeException(e);
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         }
     }
 
@@ -670,6 +696,8 @@ public class DocumentServiceImpl implements RepositoryService {
             throw re; 
         } catch (IOException e) {
             throw new RuntimeException(e);
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         }
     }
 
@@ -690,7 +718,9 @@ public class DocumentServiceImpl implements RepositoryService {
             throw re; 
         } catch (IOException e) {
             throw new RuntimeException(e);
-        }    
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
+        }  
     }
 
     @Override
@@ -710,6 +740,8 @@ public class DocumentServiceImpl implements RepositoryService {
             throw re; 
         } catch (IOException e) {
             throw new RuntimeException(e);
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         }
     }
 
@@ -730,6 +762,8 @@ public class DocumentServiceImpl implements RepositoryService {
             if (re.getCause() instanceof InvalidObjectName)
                 throw new InvalidDocumentId(documentId);
             throw re; 
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         }
         LOG.exit();
     }
@@ -748,6 +782,8 @@ public class DocumentServiceImpl implements RepositoryService {
             re.rethrowAsLocal(InvalidObjectName.class);
             re.rethrowAsLocal(InvalidWorkspaceState.class);
             throw re; 
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         }
         LOG.exit();
     }
@@ -768,7 +804,9 @@ public class DocumentServiceImpl implements RepositoryService {
             re.rethrowAsLocal(InvalidReference.class);
             re.rethrowAsLocal(InvalidObjectName.class);
             throw re; 
-        } 
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
+        }
     }
 
     @Override
@@ -806,7 +844,9 @@ public class DocumentServiceImpl implements RepositoryService {
             re.rethrowAsLocal(InvalidWorkspace.class);
             re.rethrowAsLocal(InvalidObjectName.class);
             throw re; 
-        } 
+        }  catch (ServerError se) {
+            throw new BaseRuntimeException(se);
+        }
     }
 
     @Override
@@ -883,6 +923,8 @@ public class DocumentServiceImpl implements RepositoryService {
             re.rethrowAsLocal(InvalidWorkspace.class);
             re.rethrowAsLocal(InvalidObjectName.class);
             throw re; 
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         }
     }
 
@@ -902,6 +944,8 @@ public class DocumentServiceImpl implements RepositoryService {
             re.rethrowAsLocal(InvalidWorkspace.class);
             re.rethrowAsLocal(InvalidObjectName.class);
             throw re; 
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         }
     }
 
@@ -927,6 +971,8 @@ public class DocumentServiceImpl implements RepositoryService {
             throw re; 
         } catch (IOException e) {
             throw new RuntimeException(e);
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         }
     }
     
@@ -947,6 +993,8 @@ public class DocumentServiceImpl implements RepositoryService {
             throw re; 
         } catch (IOException e) {
             throw new RuntimeException(e);
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         }
     }    
 
@@ -968,6 +1016,8 @@ public class DocumentServiceImpl implements RepositoryService {
             throw re; 
         } catch (IOException e) {
             throw new RuntimeException(e);
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         }
     }
 
@@ -987,6 +1037,8 @@ public class DocumentServiceImpl implements RepositoryService {
             throw re; 
         } catch (IOException e) {
             throw new RuntimeException(e);
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
         }
     }
 

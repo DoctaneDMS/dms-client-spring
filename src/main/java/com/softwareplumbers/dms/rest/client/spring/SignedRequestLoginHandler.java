@@ -1,5 +1,6 @@
 package com.softwareplumbers.dms.rest.client.spring;
 
+import com.softwareplumbers.dms.Exceptions;
 import java.net.HttpCookie;
 import java.net.URI;
 import java.security.InvalidKeyException;
@@ -106,9 +107,13 @@ public class SignedRequestLoginHandler implements LoginHandler {
         String authRequestBase64 = base64.encodeToString(authRequestBytes);
         String sigBase64 = base64.encodeToString(signature);
         URI authRequest = authURI.expand(authRequestBase64, sigBase64); 
-        ResponseEntity<String> response = restTemplate.exchange(authRequest, HttpMethod.GET, null, String.class);
-        Optional<HttpCookie> result = getCookieFromResponse(cookieName, response);
-        return LOG.exit(result);
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(authRequest, HttpMethod.GET, null, String.class);
+            return LOG.exit(getCookieFromResponse(cookieName, response));
+        } catch (Exception e) {
+            LOG.catching(e);
+            return LOG.exit(Optional.empty());
+        }
     }
     
     //------- public methods ------//
@@ -178,10 +183,12 @@ public class SignedRequestLoginHandler implements LoginHandler {
      * 
      * Function will perform a login if necessary and apply the resulting credentials to the given request.
      * 
+     * 
      * @param mainRequest The request that requires authentication information.
+     * @throws com.softwareplumbers.dms.Exceptions.ServerError
      */
     @Override
-    public void applyCredentials(HttpHeaders mainRequest) {
+    public void applyCredentials(HttpHeaders mainRequest) throws Exceptions.ServerError {
         LOG.entry();
         if (authCookie == null || authCookie.hasExpired()) {
             Optional<HttpCookie> cookie = getCookieFromServer();
@@ -189,6 +196,8 @@ public class SignedRequestLoginHandler implements LoginHandler {
         }
         if (authCookie != null)
             mainRequest.add("Cookie", authCookie.toString());
+        else
+            throw new Exceptions.ServerError("Authentication not accepted");
         LOG.exit();
     }
     
