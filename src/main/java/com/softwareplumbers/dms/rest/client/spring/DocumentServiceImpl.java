@@ -679,7 +679,7 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public Workspace createWorkspaceByName(RepositoryPath objectName, Workspace.State state, JsonObject metadata, Options.Create... options) throws InvalidWorkspaceState, InvalidWorkspace {
+    public Workspace createWorkspaceByName(RepositoryPath objectName, Workspace.State state, JsonObject metadata, Options.Create... options) throws InvalidWorkspaceState, InvalidWorkspace, InvalidObjectName {
         LOG.entry(objectName, state, metadata, Options.loggable(options));
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
@@ -693,6 +693,7 @@ public class DocumentServiceImpl implements RepositoryService {
             RemoteException re = getDefaultError(e);
             re.rethrowAsLocal(InvalidWorkspace.class);
             re.rethrowAsLocal(InvalidWorkspaceState.class);
+            re.rethrowAsLocal(InvalidObjectName.class);
             throw re; 
         } catch (IOException e) {
             throw new RuntimeException(e);
