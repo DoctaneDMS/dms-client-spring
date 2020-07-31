@@ -38,6 +38,10 @@ public class TestClient extends DocumentServiceTest {
     @Autowired @Qualifier("documentMetadataModel")
     TestModel documentMetadataModel;
     
+    public TestClient() {
+        super(false);
+    }
+    
     @Override
     public RepositoryService service() {
         return service;

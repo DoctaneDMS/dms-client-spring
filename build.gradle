@@ -5,7 +5,7 @@ buildscript {
 }
 
 plugins {
-  id "org.jdrupes.mdoclet" version "1.0.5"
+  id "org.jdrupes.mdoclet" version "1.0.10"
 }
 
 String propValue(String propName, String defValue) {
@@ -47,11 +47,11 @@ configurations {
 
 
 dependencies {
-    compile group: 'com.softwareplumbers.oss', name:'dms-interface-core', version: '0.9.9'
+    compile group: 'com.softwareplumbers.oss', name:'dms-interface-core', version: '0.9.11'
     compile group: 'com.softwareplumbers.oss', name:'key-manager', version: '0.0.12'
     compile group: 'org.springframework', name: 'spring-web', version: '4.3.8.RELEASE'
     compile group: 'org.slf4j', name: 'slf4j-ext', version: '1.7.30'
-    testCompile group: 'com.softwareplumbers.oss', name: 'dms-interface-core', version: '0.9.9', classifier: 'tests'
+    testCompile group: 'com.softwareplumbers.oss', name: 'dms-interface-core', version: '0.9.11', classifier: 'tests'
     testCompile group: 'org.hamcrest', name: 'hamcrest-library', version: '1.3'
     testImplementation group: 'ch.qos.logback', name: 'logback-classic', version: '1.2.3'
     testImplementation 'org.springframework:spring-test:4.3.8.RELEASE'
@@ -59,7 +59,7 @@ dependencies {
     testCompile group: 'junit', name: 'junit', version: '4.12'
     gatherJavadoc group: 'com.softwareplumbers.oss', name:'immutable-list', version:'0.0.5', classifier:'sources'
     gatherJavadoc group: 'com.softwareplumbers.oss', name:'key-manager', version:'0.0.12', classifier:'sources'
-    gatherJavadoc group: 'com.softwareplumbers.oss', name:'dms-interface-core', version:'0.9.9', classifier:'sources'
+    gatherJavadoc group: 'com.softwareplumbers.oss', name:'dms-interface-core', version:'0.9.11', classifier:'sources'
     gatherJavadoc group: 'com.softwareplumbers.oss', name:'pipedstream', version:'0.0.2', classifier:'sources'
 }
 
@@ -92,7 +92,8 @@ javadoc {
 test {
     systemProperty "doctane.keystore.password", propValue("keystorePassword", "changeme")
     systemProperty "spring.profiles.active", propValue("testProfile", "test")
- 
+    systemProperty "local.certs.dir", propValue("localCertsDir", "/var/tmp/doctane/certs")
+    systemProperty "local.keystore", propValue("localKeystore", "/var/tmp/doctane/doctane.keystore") 
     testLogging {
         events "passed", "skipped", "failed"
     }
