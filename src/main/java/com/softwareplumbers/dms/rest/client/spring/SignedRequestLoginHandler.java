@@ -1,8 +1,6 @@
 package com.softwareplumbers.dms.rest.client.spring;
 
 import com.softwareplumbers.dms.Exceptions;
-import com.softwareplumbers.keymanager.BadKeyException;
-import com.softwareplumbers.keymanager.InitializationFailure;
 import java.net.HttpCookie;
 import java.net.URI;
 import java.security.InvalidKeyException;
@@ -14,6 +12,7 @@ import java.util.Base64;
 import java.util.Base64.Encoder;
 import java.util.Optional;
 import java.util.List;
+import java.util.ArrayList;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -45,7 +44,7 @@ public class SignedRequestLoginHandler implements LoginHandler {
     
     private static final XLogger LOG = XLoggerFactory.getXLogger(SignedRequestLoginHandler.class);
 
-    private static String BASE_COOKIE_NAME="DoctaneUserToken";
+    private static String BASE_COOKIE_NAME="DoctaneUserToken/";
 
     //------ private variables -------//
 
@@ -65,11 +64,23 @@ public class SignedRequestLoginHandler implements LoginHandler {
     }
     
     private static Optional<HttpCookie> getCookieFromResponse(String cookieName, ResponseEntity<?> response) {
-        return response.getHeaders().get("Set-Cookie").stream()
+        ArrayList<String> otherCookies = new ArrayList<>();
+        Optional<HttpCookie> maybeCookie = response.getHeaders().get("Set-Cookie").stream()
             .map(HttpCookie::parse)
             .flatMap(List::stream)
+            .peek(cookie -> { if (cookie.getName().startsWith(BASE_COOKIE_NAME)) otherCookies.add(cookie.getName()); })
             .filter(cookie -> cookieName.equals(cookie.getName()))
             .findAny();
+        
+        if (!maybeCookie.isPresent()) {
+            // No matching cookie found, but let's at least try to let someone know why
+            if (otherCookies.size() > 0) {
+                // It's actually a really common case that someone forgot to set the 
+                LOG.warn("Found no cookie named {} but found cookies for other tenants {}", cookieName, otherCookies);
+            }
+        }
+        
+        return maybeCookie;
     }
 
     //------ private methods ------///
@@ -102,7 +113,7 @@ public class SignedRequestLoginHandler implements LoginHandler {
     private Optional<HttpCookie> getCookieFromServer() {
         LOG.entry();
         RestTemplate restTemplate = new RestTemplate();
-        X509Certificate cert = keyManager.getCertificate(KeyPairs.DEFAULT_SERVICE_ACCOUNT);
+        // X509Certificate cert = keyManager.getCertificate(KeyPairs.DEFAULT_SERVICE_ACCOUNT);
         byte[] authRequestBytes = formatAuthRequest(KeyPairs.DEFAULT_SERVICE_ACCOUNT);
         byte[] signature = signAuthRequest(authRequestBytes, KeyPairs.DEFAULT_SERVICE_ACCOUNT);
         Encoder base64 = Base64.getUrlEncoder();
@@ -130,7 +141,7 @@ public class SignedRequestLoginHandler implements LoginHandler {
         LOG.entry(keyManager, authURI, repository);
         this.keyManager = keyManager;
         this.authURI = authURI;
-        this.cookieName = "DoctaneUserToken/"+repository;
+        this.cookieName = BASE_COOKIE_NAME+repository;
         LOG.exit();
     }
     
