@@ -1,6 +1,8 @@
 package com.softwareplumbers.dms.rest.client.spring;
 
 import com.softwareplumbers.dms.Exceptions;
+import com.softwareplumbers.keymanager.BadKeyException;
+import com.softwareplumbers.keymanager.InitializationFailure;
 import java.net.HttpCookie;
 import java.net.URI;
 import java.security.InvalidKeyException;
@@ -54,11 +56,11 @@ public class SignedRequestLoginHandler implements LoginHandler {
 
     //------ private static methods -------//
     
-    private static byte[] formatAuthRequest(String serviceAccount) {
-        LOG.entry(serviceAccount);
+    private byte[] formatAuthRequest(KeyPairs account) {
+        LOG.entry(account);
         JsonObjectBuilder authRequest = Json.createObjectBuilder();
         authRequest.add("instant", System.currentTimeMillis());
-        authRequest.add("account", serviceAccount);
+        authRequest.add("account", keyManager.getPublishedName(account));
         return authRequest.build().toString().getBytes();
     }
     
@@ -101,7 +103,7 @@ public class SignedRequestLoginHandler implements LoginHandler {
         LOG.entry();
         RestTemplate restTemplate = new RestTemplate();
         X509Certificate cert = keyManager.getCertificate(KeyPairs.DEFAULT_SERVICE_ACCOUNT);
-        byte[] authRequestBytes = formatAuthRequest(extractName(cert));
+        byte[] authRequestBytes = formatAuthRequest(KeyPairs.DEFAULT_SERVICE_ACCOUNT);
         byte[] signature = signAuthRequest(authRequestBytes, KeyPairs.DEFAULT_SERVICE_ACCOUNT);
         Encoder base64 = Base64.getUrlEncoder();
         String authRequestBase64 = base64.encodeToString(authRequestBytes);
