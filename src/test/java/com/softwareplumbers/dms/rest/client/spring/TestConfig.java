@@ -30,9 +30,11 @@ public class TestConfig {
     @Bean
     public KeyManager keyManager() throws KeyStoreException, IOException { 
         KeyManager<SecretKeys, KeyPairs> keyManager = new KeyManager<>();
-        keyManager.setLocation(env.getProperty("local.keystore"));
-        keyManager.setPublishLocation(env.getProperty("local.certs.dir"));
-        keyManager.setPassword(env.getProperty("doctane.keystore.password"));
+        String root = System.getenv("DOCTANE_INSTALLATION_ROOT");
+        keyManager.setLocationParts(new String[] { root, "pkix", "doctane.keystore"});
+        keyManager.setPublishLocationParts(new String[] { root, "pkix", "certs" });
+        keyManager.setPassword(System.getenv("DOCTANE_KEYSTORE_PASSWORD"));
+
         keyManager.setRequiredSecretKeys(SecretKeys.class);
         keyManager.setRequiredKeyPairs(KeyPairs.class);
         return keyManager;
