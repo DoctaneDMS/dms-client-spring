@@ -40,6 +40,8 @@ import java.util.function.Predicate;
 import java.util.stream.Stream;
 import javax.json.Json;
 import javax.json.JsonObject;
+import javax.json.JsonValue;
+import javax.json.JsonWriter;
 import javax.json.stream.JsonParsingException;
 import org.slf4j.ext.XLogger;
 import org.slf4j.ext.XLoggerFactory;
@@ -197,6 +199,39 @@ public class DocumentServiceImpl implements RepositoryService {
         return LOG.exit(Json.createReader(new StringReader(response.getBody())).readObject());
     }
     
+    /** Send a JSON object to the server.
+     * 
+     * @param uri URI to which we will send the data
+     * @param method HTTP method used to send the data (POST or PUT)
+     * @param jo JSON object to send
+     * @return Parsed JSON object send by server as response.
+     * @throws IOException 
+     */
+    protected void sendJson(URI uri, HttpMethod method, JsonObject jo, OutputStream out) {
+        LOG.entry(uri, method, jo);
+        RestTemplate restTemplate = new RestTemplate();
+
+        try {
+            HttpHeaders credentialHeaders = new HttpHeaders();
+            loginHandler.applyCredentials(credentialHeaders);
+            restTemplate.execute(
+                uri, 
+                HttpMethod.PUT, 
+                request -> { 
+                    request.getHeaders().putAll(credentialHeaders); 
+                    try (JsonWriter writer = Json.createWriter(request.getBody())) { 
+                        writer.writeObject(jo); 
+                    } 
+                }, 
+                response -> { writeBytes(response, out); return null; }
+            );
+        } catch (HttpStatusCodeException e) {
+            throw getDefaultError(e);
+        } catch (ServerError e) {
+            throw new BaseRuntimeException(e);
+        }
+    }    
+    
     /** Get JSON from the server.
      * 
      * @param uri URI from which we will request JSON data
@@ -227,7 +262,7 @@ public class DocumentServiceImpl implements RepositoryService {
      * 
      * @param uri URI on which we will invoke DELETE.
      */
-    protected void delete(URI uri) throws Exceptions.ServerError {
+    protected JsonObject delete(URI uri) throws Exceptions.ServerError {
         LOG.entry(uri);
         HttpHeaders headers = new HttpHeaders();
         headers.setAccept(Collections.singletonList(org.springframework.http.MediaType.APPLICATION_JSON));
@@ -238,7 +273,39 @@ public class DocumentServiceImpl implements RepositoryService {
         ResponseEntity<String> response = restTemplate.exchange(
                 uri, HttpMethod.DELETE, new HttpEntity<>(headers), String.class);
 
-        LOG.exit();
+        String body = response.getBody();
+
+        try {
+            return LOG.exit(Json.createReader(new StringReader(body)).readObject());
+        } catch (JsonParsingException e) {
+            LOG.warn("failed to parse Json: {}", body);
+            throw e;
+        }
+    }
+    
+    /** Send a DELETE operation to the server.
+     * 
+     * @param uri URI on which we will invoke DELETE.
+     * @param out Output stream to write data to
+     */
+    protected void delete(URI uri, OutputStream out) {
+        LOG.entry(uri);
+        RestTemplate restTemplate = new RestTemplate();
+
+        try {
+            HttpHeaders credentialHeaders = new HttpHeaders();
+            loginHandler.applyCredentials(credentialHeaders);
+            restTemplate.execute(
+                uri, 
+                HttpMethod.DELETE, 
+                request -> request.getHeaders().putAll(credentialHeaders), 
+                response -> { writeBytes(response, out); return null; }
+            );
+        } catch (HttpStatusCodeException e) {
+            throw getDefaultError(e);
+        } catch (ServerError e) {
+            throw new BaseRuntimeException(e);
+        }
     }
     
     /** Convert a raw ClientHttpResponse into a ServerError exception 
@@ -317,6 +384,10 @@ public class DocumentServiceImpl implements RepositoryService {
     
     private static void addPublishOption(UriComponentsBuilder builder) {
         builder.queryParam("updateType", "PUBLISH");
+    }
+    
+    private static void addUndeleteOption(UriComponentsBuilder builder) {
+        builder.queryParam("updateType", "UNDELETE");
     }
 
     private static void addCreateOptions(UriComponentsBuilder builder, Options.Create... options) {        
@@ -769,36 +840,59 @@ public class DocumentServiceImpl implements RepositoryService {
     }
 
     @Override
-    public void deleteDocument(RepositoryPath workspaceName, String documentId) throws InvalidWorkspace, InvalidDocumentId, InvalidWorkspaceState {
+    public Stream<DocumentLink> deleteDocument(RepositoryPath workspaceName, String documentId) throws InvalidWorkspace, InvalidDocumentId, InvalidWorkspaceState {
         LOG.entry(workspaceName, documentId);
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
         
         addObjectName(builder, workspaceName.addId(documentId));
 
         try {
-            delete(builder.build().toUri());
-        } catch (HttpStatusCodeException e) {
-            RemoteException re = getDefaultError(e);
+            InputStreamSupplier result = InputStreamSupplier.of(out->delete(builder.build().toUri(), out));
+            return LOG.exit(factory.build(result.get()).map(DocumentLink.class::cast));            
+        } catch (RemoteException re) {
             re.rethrowAsLocal(InvalidWorkspace.class);
             re.rethrowAsLocal(InvalidDocumentId.class);
             re.rethrowAsLocal(InvalidWorkspaceState.class);
             if (re.getCause() instanceof InvalidObjectName)
                 throw new InvalidDocumentId(documentId);
             throw re; 
-        } catch (ServerError se) {
-            throw new BaseRuntimeException(se);
+        } catch (IOException e) {
+            throw LOG.throwing(new RuntimeException(e));
         }
-        LOG.exit();
     }
+    
+    @Override
+    public Stream<DocumentLink> undeleteDocument(RepositoryPath workspaceName, String documentId) throws InvalidWorkspace, InvalidDocumentId, InvalidWorkspaceState {
+        LOG.entry(workspaceName, documentId);
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
+        
+        addObjectName(builder, workspaceName.addId(documentId));
+        addUndeleteOption(builder);
+
+        try {
+            InputStreamSupplier result = InputStreamSupplier.of(out->sendJson(builder.build().toUri(), HttpMethod.PUT, Json.createObjectBuilder().build(), out));
+            return LOG.exit(factory.build(result.get()).map(DocumentLink.class::cast));            
+        } catch (RemoteException re) {
+            re.rethrowAsLocal(InvalidWorkspace.class);
+            re.rethrowAsLocal(InvalidDocumentId.class);
+            re.rethrowAsLocal(InvalidWorkspaceState.class);
+            if (re.getCause() instanceof InvalidObjectName)
+                throw new InvalidDocumentId(documentId);
+            throw re; 
+        } catch (IOException e) {
+            throw LOG.throwing(new RuntimeException(e));
+        }
+    }    
 
     @Override
-    public void deleteObjectByName(RepositoryPath objectName) throws InvalidWorkspace, InvalidObjectName, InvalidWorkspaceState {
+    public NamedRepositoryObject deleteObjectByName(RepositoryPath objectName) throws InvalidWorkspace, InvalidObjectName, InvalidWorkspaceState {
         LOG.entry(objectName);
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
         
         addObjectName(builder, objectName);
         try {
-            delete(builder.build().toUri());
+            JsonObject result = delete(builder.build().toUri());
+            return LOG.exit((NamedRepositoryObject)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
             re.rethrowAsLocal(InvalidWorkspace.class);
@@ -808,9 +902,31 @@ public class DocumentServiceImpl implements RepositoryService {
         } catch (ServerError se) {
             throw new BaseRuntimeException(se);
         }
-        LOG.exit();
     }
 
+    @Override
+    public NamedRepositoryObject undeleteObjectByName(RepositoryPath objectName) throws InvalidWorkspace, InvalidObjectName, InvalidWorkspaceState {
+        LOG.entry(objectName);
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
+        
+        addObjectName(builder, objectName);
+        addUndeleteOption(builder);
+
+        try {
+            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, Json.createObjectBuilder().build());
+            return LOG.exit((NamedRepositoryObject)factory.build(result, Optional.empty()));
+        } catch (HttpStatusCodeException e) {
+            RemoteException re = getDefaultError(e);
+            re.rethrowAsLocal(InvalidWorkspace.class);
+            re.rethrowAsLocal(InvalidObjectName.class);
+            re.rethrowAsLocal(InvalidWorkspaceState.class);
+            throw re; 
+        } catch (ServerError se) {
+            throw new BaseRuntimeException(se);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }    
 
 
     @Override
