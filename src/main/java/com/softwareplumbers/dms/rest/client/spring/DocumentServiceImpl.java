@@ -380,6 +380,7 @@ public class DocumentServiceImpl implements RepositoryService {
     private static void addUpdateOptions(UriComponentsBuilder builder, Options.Update... options) {        
         if (!Options.CREATE_MISSING_ITEM.isIn(options)) builder.queryParam("updateType", "UPDATE");
         if (Options.CREATE_MISSING_PARENT.isIn(options)) builder.queryParam("createWorkspace", "true");
+        if (Options.EXTERNAL_REFERENCE.isIn(options)) builder.queryParam("externalReference", "true");
     }
     
     private static void addPublishOption(UriComponentsBuilder builder) {
@@ -393,6 +394,7 @@ public class DocumentServiceImpl implements RepositoryService {
     private static void addCreateOptions(UriComponentsBuilder builder, Options.Create... options) {        
         if (!Options.RETURN_EXISTING_LINK_TO_SAME_DOCUMENT.isIn(options)) builder.queryParam("returnExisting", "false");
         if (Options.CREATE_MISSING_PARENT.isIn(options)) builder.queryParam("createWorkspace", "true");
+        if (Options.EXTERNAL_REFERENCE.isIn(options)) builder.queryParam("externalReference", "true");
         builder.queryParam("updateType", "CREATE");
     }
     
