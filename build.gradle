@@ -47,7 +47,7 @@ configurations {
 
 
 dependencies {
-    compile group: 'com.softwareplumbers.oss', name:'dms-interface-core', version: '0.9.20'
+    compile group: 'com.softwareplumbers.oss', name:'dms-interface-core', version: '0.9.22'
     compile group: 'com.softwareplumbers.oss', name:'key-manager', version: '0.0.23'
     compile group: 'org.springframework', name: 'spring-web', version: '4.3.8.RELEASE'
     compile group: 'org.slf4j', name: 'slf4j-ext', version: '1.7.30'
