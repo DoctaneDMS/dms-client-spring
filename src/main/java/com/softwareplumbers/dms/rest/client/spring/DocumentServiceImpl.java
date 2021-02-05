@@ -69,6 +69,7 @@ public class DocumentServiceImpl implements RepositoryService {
     private String docsUrl;
     private String workspaceUrl;
     private String catalogueUrl;
+    private char pathEscapeChar = '$';
     private LoginHandler loginHandler;
     
     /** Set the URL for the Doctane web service to be called.
@@ -101,6 +102,10 @@ public class DocumentServiceImpl implements RepositoryService {
      */
     public void setLoginHandler(LoginHandler loginHandler) {
         this.loginHandler = loginHandler;
+    }
+    
+    public void setPathEscapeChar(char pathEscapeChar) {
+        this.pathEscapeChar = pathEscapeChar;
     }
     
     /** Construct a service using URL and login handler.
@@ -417,8 +422,9 @@ public class DocumentServiceImpl implements RepositoryService {
     private static void addGetOptions(UriComponentsBuilder builder, Options.Get... options) {        
     }
     
-    private static void addObjectName(UriComponentsBuilder builder, RepositoryPath objectName) {
-        if (objectName != null && !objectName.isEmpty()) builder.path(objectName.toString()).path("/");
+    private void addObjectName(UriComponentsBuilder builder, RepositoryPath objectName) {
+        builder.queryParam("escapeWith", pathEscapeChar);
+        if (objectName != null && !objectName.isEmpty()) builder.path(objectName.toString(pathEscapeChar)).path("/");
     }
 
     private static void addQuery(UriComponentsBuilder builder, Query query) {
