@@ -31,15 +31,25 @@ import com.softwareplumbers.dms.common.impl.RepositoryObjectFactory;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.Reader;
 import java.io.StringReader;
+import java.io.UnsupportedEncodingException;
+import java.io.Writer;
 import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 import javax.json.Json;
 import javax.json.JsonObject;
+import javax.json.JsonReader;
 import javax.json.JsonValue;
 import javax.json.JsonWriter;
 import javax.json.stream.JsonParsingException;
@@ -141,6 +151,13 @@ public class DocumentServiceImpl implements RepositoryService {
 		return new HttpEntity<>(resource, fileHeader);
 	}
 	
+    private OutputStreamConsumer toOutputStream(JsonObject jo) {
+        return out -> {
+            try (Writer writer = new OutputStreamWriter(out, StandardCharsets.UTF_8.name()); JsonWriter jsonWriter = Json.createWriter(out)) {
+                jsonWriter.write(jo);
+            }
+        };
+    }
         
     /** Send multipart data (binary stream + JSON metadata) to the server.
      * 
@@ -158,7 +175,9 @@ public class DocumentServiceImpl implements RepositoryService {
         LinkedMultiValueMap<String, Object> multipartMap = new LinkedMultiValueMap<>();
         HttpHeaders metadataHeader = new HttpHeaders();
         metadataHeader.set("Content-Type", org.springframework.http.MediaType.APPLICATION_JSON_VALUE);
-        HttpEntity<String> metadataEntity = new HttpEntity<>(jo.toString(), metadataHeader);
+        
+        
+        HttpEntity<InputStreamResource> metadataEntity = toEntity(InputStreamSupplier.of(toOutputStream(jo)).get(), "application/json");
         HttpEntity<InputStreamResource> binaryEntity = toEntity(iss.get(), mt == null || mt.trim().isEmpty() ? "application/octet-stream" : mt);
         multipartMap.add("metadata", metadataEntity);
         multipartMap.add("file", binaryEntity);
@@ -172,11 +191,17 @@ public class DocumentServiceImpl implements RepositoryService {
         HttpEntity<LinkedMultiValueMap<String, Object>> requestEntity = new HttpEntity<>(multipartMap, headers);
         RestTemplate restTemplate = new RestTemplate();
 
-        ResponseEntity<String> response = restTemplate.exchange(
+        ResponseEntity<byte[]> response = restTemplate.exchange(
                 uri, method, requestEntity,
-                String.class);
+                byte[].class);
 
-        return LOG.exit(Json.createReader(new StringReader(response.getBody())).readObject());
+        try (
+            ByteArrayInputStream is = new ByteArrayInputStream(response.getBody()); 
+            Reader reader = new InputStreamReader(is, StandardCharsets.UTF_8.name()); 
+            JsonReader jsonReader = Json.createReader(reader)
+        ) {
+            return LOG.exit(jsonReader.readObject());
+        }
     }
     
     /** Send a JSON object to the server.
@@ -190,18 +215,28 @@ public class DocumentServiceImpl implements RepositoryService {
     protected JsonObject sendJson(URI uri, HttpMethod method, JsonObject jo) throws IOException, Exceptions.ServerError {
         LOG.entry(uri, method, jo);
         HttpHeaders headers = new HttpHeaders();
-        headers.set("Content-Type", org.springframework.http.MediaType.APPLICATION_JSON_VALUE);
+        headers.set("Content-Type", org.springframework.http.MediaType.APPLICATION_JSON_UTF8_VALUE);
         headers.setAccept(Collections.singletonList(org.springframework.http.MediaType.APPLICATION_JSON));
+        headers.setAcceptCharset(Collections.singletonList(StandardCharsets.UTF_8));
         loginHandler.applyCredentials(headers);
-        HttpEntity<String> requestEntity = new HttpEntity<>(jo.toString(), headers);
-
         RestTemplate restTemplate = new RestTemplate();
 
-        ResponseEntity<String> response = restTemplate.exchange(
-                uri, method, requestEntity,
-                String.class);
+        JsonObject result = restTemplate.execute(
+            uri, 
+            method, 
+            request -> { 
+                request.getHeaders().putAll(headers);
+                try (JsonWriter writer = Json.createWriter(request.getBody())) { 
+                    writer.write(jo);
+                } 
+            },
+            response -> { 
+                LOG.debug("Content type {}", response.getHeaders().getContentType());
+                return Json.createReader(new InputStreamReader(response.getBody(), StandardCharsets.UTF_8)).readObject(); 
+            }
+        );
 
-        return LOG.exit(Json.createReader(new StringReader(response.getBody())).readObject());
+        return LOG.exit(result);
     }
     
     /** Send a JSON object to the server.
@@ -246,21 +281,24 @@ public class DocumentServiceImpl implements RepositoryService {
         LOG.entry(uri);
         HttpHeaders headers = new HttpHeaders();
         headers.setAccept(Collections.singletonList(org.springframework.http.MediaType.APPLICATION_JSON));
+        headers.setAcceptCharset(Collections.singletonList(StandardCharsets.UTF_8));
         loginHandler.applyCredentials(headers);
 
         RestTemplate restTemplate = new RestTemplate();
 
-        ResponseEntity<String> response = restTemplate.exchange(
-                uri, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+        JsonObject result = restTemplate.execute(
+            uri, 
+            HttpMethod.GET, 
+            request -> { 
+                request.getHeaders().putAll(headers);
+            },
+            response -> { 
+                LOG.debug("Content type {}", response.getHeaders().getContentType());
+                return Json.createReader(new InputStreamReader(response.getBody(), StandardCharsets.UTF_8)).readObject(); 
+            }
+        );
         
-        String body = response.getBody();
-
-        try {
-            return LOG.exit(Json.createReader(new StringReader(body)).readObject());
-        } catch (JsonParsingException e) {
-            LOG.warn("failed to parse Json: {}", body);
-            throw e;
-        }
+        return LOG.exit(result);
     }
     
     /** Send a DELETE operation to the server.
@@ -443,7 +481,7 @@ public class DocumentServiceImpl implements RepositoryService {
         addObjectName(builder, partName);
         builder.path("file");
         try {
-            writeData(builder.buildAndExpand(reference.id).toUri(), out);
+            writeData(builder.buildAndExpand(reference.id).encode().toUri(), out);
         } catch (RemoteException re) {
             re.rethrowAsLocal(InvalidReference.class);
             throw re;
@@ -457,7 +495,7 @@ public class DocumentServiceImpl implements RepositoryService {
         addObjectName(builder, partName);
         builder.path("file");
         if (reference.version != null) builder = builder.queryParam("version", reference.version);  
-        final URI uri = builder.buildAndExpand(reference.id).toUri();
+        final URI uri = builder.buildAndExpand(reference.id).encode().toUri();
         return InputStreamSupplier.of(out->writeData(uri, out)).get();
     }
     
@@ -465,7 +503,7 @@ public class DocumentServiceImpl implements RepositoryService {
     public InputStream getData(RepositoryPath objectName, Options.Get... options) throws InvalidObjectName, IOException {
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
         addObjectName(builder, objectName);
-        URI uri = builder.build().toUri();
+        URI uri = builder.build().encode().toUri();
         try {
             return InputStreamSupplier.of(out->writeData(uri, out)).get();        
         } catch (RemoteException re) {
@@ -479,7 +517,7 @@ public class DocumentServiceImpl implements RepositoryService {
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
         addObjectName(builder, objectName);
         try {
-            writeData(builder.build().toUri(), out);
+            writeData(builder.build().encode().toUri(), out);
         } catch (RemoteException re) {
             re.rethrowAsLocal(InvalidObjectName.class);
             throw re;
@@ -530,7 +568,7 @@ public class DocumentServiceImpl implements RepositoryService {
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
             builder.path("{documentId}");
-            JsonObject result = sendMultipart(builder.buildAndExpand(id).toUri(), HttpMethod.PUT, mediaType, data, metadata);
+            JsonObject result = sendMultipart(builder.buildAndExpand(id).encode().toUri(), HttpMethod.PUT, mediaType, data, metadata);
             return LOG.exit(Reference.fromJson(result));
         } catch (IOException e) {
             throw LOG.throwing(new RuntimeException(e));
@@ -551,7 +589,7 @@ public class DocumentServiceImpl implements RepositoryService {
 
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
-            JsonObject result = sendMultipart(builder.build().toUri(), HttpMethod.POST, mediaType, data, metadata);
+            JsonObject result = sendMultipart(builder.build().encode().toUri(), HttpMethod.POST, mediaType, data, metadata);
             Reference ref = Reference.fromJson(result);
             return LOG.exit(ref);
         } catch (IOException e) {
@@ -573,7 +611,7 @@ public class DocumentServiceImpl implements RepositoryService {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
             builder.path("{documentId}/metadata");
             if (ref.version != null) builder.queryParam("version", ref.version);
-            JsonObject result = getJson(builder.buildAndExpand(ref.id).toUri());
+            JsonObject result = getJson(builder.buildAndExpand(ref.id).encode().toUri());
             return LOG.exit((Document)factory.build(result, Optional.empty()));
         } catch (ServerError se) {
             throw new BaseRuntimeException(se);
@@ -594,7 +632,7 @@ public class DocumentServiceImpl implements RepositoryService {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
             addObjectName(builder, objectName);
             addCreateOptions(builder, options);
-            JsonObject result = sendMultipart(builder.build().toUri(), HttpMethod.PUT, mediaType, iss, metadata);
+            JsonObject result = sendMultipart(builder.build().encode().toUri(), HttpMethod.PUT, mediaType, iss, metadata);
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (ServerError se) {
             throw new BaseRuntimeException(se);
@@ -616,7 +654,7 @@ public class DocumentServiceImpl implements RepositoryService {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(workspaceUrl);
             addObjectName(builder, workspaceName);
             addCreateOptions(builder, options);
-            JsonObject result = sendMultipart(builder.build().toUri(), HttpMethod.POST, mediaType, iss, metadata);
+            JsonObject result = sendMultipart(builder.build().encode().toUri(), HttpMethod.POST, mediaType, iss, metadata);
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (ServerError se) {
             throw new BaseRuntimeException(se);
@@ -638,7 +676,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addObjectName(builder, workspaceName);
             addCreateOptions(builder, options);
             DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, workspaceName, false, reference, Constants.NO_UPDATE_TIME, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
-            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.POST, link.toJson());
+            JsonObject result = sendJson(builder.build().encode().toUri(), HttpMethod.POST, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (ServerError se) {
             throw new BaseRuntimeException(se);
@@ -661,7 +699,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addObjectName(builder, objectName);
             addCreateOptions(builder, options);
             DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, false, reference, Constants.NO_UPDATE_TIME, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
-            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
+            JsonObject result = sendJson(builder.build().encode().toUri(), HttpMethod.PUT, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (ServerError se) {
             throw new BaseRuntimeException(se);
@@ -689,9 +727,9 @@ public class DocumentServiceImpl implements RepositoryService {
             JsonObject result;
             if (iss == null || mediaType == null) {
                 DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, false, Constants.NO_REFERENCE, Constants.NO_UPDATE_TIME, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, metadata, false, LocalData.NONE);
-                result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
+                result = sendJson(builder.build().encode().toUri(), HttpMethod.PUT, link.toJson());
             } else {
-                result = sendMultipart(builder.build().toUri(), HttpMethod.PUT, mediaType, iss, metadata);
+                result = sendMultipart(builder.build().encode().toUri(), HttpMethod.PUT, mediaType, iss, metadata);
             }
             
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
@@ -716,7 +754,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addObjectName(builder, objectName);
             addUpdateOptions(builder, options);
             DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, false, reference, Constants.NO_UPDATE_TIME, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
-            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
+            JsonObject result = sendJson(builder.build().encode().toUri(), HttpMethod.PUT, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
@@ -745,7 +783,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addObjectName(builder, targetName);
             addCopyOptions(builder, Options.Create.EMPTY.addOptionIf(Options.CREATE_MISSING_PARENT, createParent).build());
             DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, false, Constants.NO_REFERENCE, Constants.NO_UPDATE_TIME, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
-            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
+            JsonObject result = sendJson(builder.build().encode().toUri(), HttpMethod.PUT, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
@@ -766,7 +804,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addObjectName(builder, targetName);
             addCopyOptions(builder, Options.Create.EMPTY.addOptionIf(Options.CREATE_MISSING_PARENT, createParent).build());
             Workspace workspace = new WorkspaceImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, false, Constants.NO_STATE, Constants.NO_METADATA, false, LocalData.NONE);
-            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, workspace.toJson());
+            JsonObject result = sendJson(builder.build().encode().toUri(), HttpMethod.PUT, workspace.toJson());
             return LOG.exit((Workspace)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
@@ -788,7 +826,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addObjectName(builder, objectName);
             addCreateOptions(builder, options);
             Workspace workspace = new WorkspaceImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, false, state, metadata, false, LocalData.NONE);
-            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, workspace.toJson());
+            JsonObject result = sendJson(builder.build().encode().toUri(), HttpMethod.PUT, workspace.toJson());
             return LOG.exit((Workspace)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
@@ -811,7 +849,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addObjectName(builder, workspaceName);
             addCreateOptions(builder, options);
             Workspace workspace = new WorkspaceImpl(Constants.NO_ID, Constants.NO_VERSION, workspaceName, false, state, metadata, false, LocalData.NONE);
-            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.POST, workspace.toJson());
+            JsonObject result = sendJson(builder.build().encode().toUri(), HttpMethod.POST, workspace.toJson());
             return LOG.exit((Workspace)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
@@ -834,7 +872,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addObjectName(builder, objectName);
             addUpdateOptions(builder, options);
             Workspace workspace = new WorkspaceImpl(Constants.NO_ID, Constants.NO_VERSION, objectName, false, state, metadata, false, LocalData.NONE);
-            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, workspace.toJson());
+            JsonObject result = sendJson(builder.build().encode().toUri(), HttpMethod.PUT, workspace.toJson());
             return LOG.exit((Workspace)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
@@ -855,7 +893,7 @@ public class DocumentServiceImpl implements RepositoryService {
         addObjectName(builder, workspaceName.addId(documentId));
 
         try {
-            InputStreamSupplier result = InputStreamSupplier.of(out->delete(builder.build().toUri(), out));
+            InputStreamSupplier result = InputStreamSupplier.of(out->delete(builder.build().encode().toUri(), out));
             return LOG.exit(factory.build(result.get()).map(DocumentLink.class::cast));            
         } catch (RemoteException re) {
             re.rethrowAsLocal(InvalidWorkspace.class);
@@ -878,7 +916,7 @@ public class DocumentServiceImpl implements RepositoryService {
         addUndeleteOption(builder);
 
         try {
-            InputStreamSupplier result = InputStreamSupplier.of(out->sendJson(builder.build().toUri(), HttpMethod.PUT, Json.createObjectBuilder().build(), out));
+            InputStreamSupplier result = InputStreamSupplier.of(out->sendJson(builder.build().encode().toUri(), HttpMethod.PUT, Json.createObjectBuilder().build(), out));
             return LOG.exit(factory.build(result.get()).map(DocumentLink.class::cast));            
         } catch (RemoteException re) {
             re.rethrowAsLocal(InvalidWorkspace.class);
@@ -899,7 +937,7 @@ public class DocumentServiceImpl implements RepositoryService {
         
         addObjectName(builder, objectName);
         try {
-            JsonObject result = delete(builder.build().toUri());
+            JsonObject result = delete(builder.build().encode().toUri());
             return LOG.exit((NamedRepositoryObject)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
@@ -921,7 +959,7 @@ public class DocumentServiceImpl implements RepositoryService {
         addUndeleteOption(builder);
 
         try {
-            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, Json.createObjectBuilder().build());
+            JsonObject result = sendJson(builder.build().encode().toUri(), HttpMethod.PUT, Json.createObjectBuilder().build());
             return LOG.exit((NamedRepositoryObject)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
@@ -944,7 +982,7 @@ public class DocumentServiceImpl implements RepositoryService {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
             addReference(builder, reference);
             addObjectName(builder, partName);
-            JsonObject result = getJson(builder.build().toUri());
+            JsonObject result = getJson(builder.build().encode().toUri());
             return LOG.exit((DocumentPart)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
@@ -963,7 +1001,7 @@ public class DocumentServiceImpl implements RepositoryService {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(docsUrl);
             addReference(builder, reference);
             addObjectName(builder, partName);
-            URI uri = builder.build().toUri();
+            URI uri = builder.build().encode().toUri();
             InputStreamSupplier result = InputStreamSupplier.of(out->writeData(uri, out)); 
             return LOG.exit(factory.build(result.get()).map(DocumentPart.class::cast));
         } catch (HttpStatusCodeException e) {
@@ -984,7 +1022,7 @@ public class DocumentServiceImpl implements RepositoryService {
             
             addObjectName(builder, objectName);
             addGetOptions(builder, options);
-            JsonObject result = getJson(builder.build().toUri());
+            JsonObject result = getJson(builder.build().encode().toUri());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
@@ -1003,7 +1041,7 @@ public class DocumentServiceImpl implements RepositoryService {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(catalogueUrl);
             addQuery(builder, query);
             if (searchHistory) addSearchOptions(builder, Options.SEARCH_OLD_VERSIONS);
-            URI uri = builder.build().toUri();
+            URI uri = builder.build().encode().toUri();
             InputStreamSupplier result = InputStreamSupplier.of(out->writeData(uri, out)); 
             return LOG.exit(factory.build(result.get()).map(Document.class::cast));
         } catch (HttpStatusCodeException e) {
@@ -1026,7 +1064,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addObjectName(builder, objectName);
             addQuery(builder, query);
             addSearchOptions(builder, options);
-            URI uri = builder.build().toUri();
+            URI uri = builder.build().encode().toUri();
             InputStreamSupplier result = InputStreamSupplier.of(out->writeJson(uri, out)); 
             return LOG.exit(factory.build(result.get()).map(NamedRepositoryObject.class::cast));
         } catch (HttpStatusCodeException e) {
@@ -1044,7 +1082,7 @@ public class DocumentServiceImpl implements RepositoryService {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(catalogueUrl);
             addReference(builder, reference);
             addQuery(builder, query);
-            URI uri = builder.build().toUri();
+            URI uri = builder.build().encode().toUri();
             InputStreamSupplier result = InputStreamSupplier.of(out->writeData(uri, out)); 
             return LOG.exit(factory.build(result.get()).map(Document.class::cast));
         } catch (HttpStatusCodeException e) {
@@ -1063,7 +1101,7 @@ public class DocumentServiceImpl implements RepositoryService {
             
             addObjectName(builder, objectName);
             addGetOptions(builder, options);
-            JsonObject result = getJson(builder.build().toUri());
+            JsonObject result = getJson(builder.build().encode().toUri());
             return LOG.exit((NamedRepositoryObject)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
@@ -1084,7 +1122,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addObjectName(builder, objectName);
             //addPartName(builder, options);
             //addOptions(builder, options);
-            JsonObject result = getJson(builder.build().toUri());
+            JsonObject result = getJson(builder.build().encode().toUri());
             return LOG.exit((Workspace)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
@@ -1109,7 +1147,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addObjectName(builder, objectName.setVersion(version));
             addPublishOption(builder);
             Workspace workspace = new WorkspaceImpl(Constants.NO_ID, version, objectName.setVersion(version), false, Constants.NO_STATE, metadata, false, LocalData.NONE);
-            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, workspace.toJson());
+            JsonObject result = sendJson(builder.build().encode().toUri(), HttpMethod.PUT, workspace.toJson());
             return LOG.exit((Workspace)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
@@ -1131,7 +1169,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addObjectName(builder, objectName.setVersion(version));
             addPublishOption(builder);
             DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, version, objectName.setVersion(version), false, Constants.NO_REFERENCE, Constants.NO_UPDATE_TIME, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, metadata, false, LocalData.NONE);
-            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
+            JsonObject result = sendJson(builder.build().encode().toUri(), HttpMethod.PUT, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
@@ -1153,7 +1191,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addObjectName(builder, path);
             addRenameOptions(builder, options);
             DocumentLink link = new DocumentLinkImpl(Constants.NO_ID, Constants.NO_VERSION, target, false, Constants.NO_REFERENCE, Constants.NO_UPDATE_TIME, Constants.NO_TYPE, Constants.NO_LENGTH, Constants.NO_DIGEST, Constants.NO_METADATA, false, LocalData.NONE);
-            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, link.toJson());
+            JsonObject result = sendJson(builder.build().encode().toUri(), HttpMethod.PUT, link.toJson());
             return LOG.exit((DocumentLink)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
@@ -1176,7 +1214,7 @@ public class DocumentServiceImpl implements RepositoryService {
             addObjectName(builder, path);
             addRenameOptions(builder, options);
             Workspace workspace = new WorkspaceImpl(Constants.NO_ID, Constants.NO_VERSION, target, false, Constants.NO_STATE, Constants.NO_METADATA, false, LocalData.NONE);
-            JsonObject result = sendJson(builder.build().toUri(), HttpMethod.PUT, workspace.toJson());
+            JsonObject result = sendJson(builder.build().encode().toUri(), HttpMethod.PUT, workspace.toJson());
             return LOG.exit((Workspace)factory.build(result, Optional.empty()));
         } catch (HttpStatusCodeException e) {
             RemoteException re = getDefaultError(e);
